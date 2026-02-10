@@ -4,14 +4,33 @@
 #include <glib-object.h>
 #include <json-glib/json-glib.h>
 
-#define YOUTUBE_API_BASE_URL "https://www.googleapis.com/youtube/v3"
+#define YOUTUBE_API_BASE_URL "https://www.googleapis.com/youtube/v3/"
+
+#define cnt_of_array(arr) (sizeof(arr) / sizeof(arr[0]))
+
+typedef struct {
+    const char* name;
+    const char* value;
+} Param;
 
 static
-SoupMessage* create_youtube_message(const char* endpoint, const char* api_key)
+SoupMessage* create_youtube_message(const char* api_key, const char* resource, const Param* params, int param_count)
 {
-    char* url = g_strconcat(YOUTUBE_API_BASE_URL, endpoint, NULL);
-    SoupMessage* request = soup_message_new(SOUP_METHOD_GET, url);
-    g_free(url);
+    GString* url = g_string_new(YOUTUBE_API_BASE_URL);
+    g_string_append(url, resource);
+    if(param_count > 0) {
+        g_string_append(url, "?");
+        for(int i = 0; i < param_count; ++i) {
+            g_string_append_uri_escaped(url, params[i].name, NULL, TRUE);
+            g_string_append(url, "=");
+            g_string_append_uri_escaped(url, params[i].value, NULL, TRUE);
+            if(i != param_count - 1) {
+                g_string_append(url, "&");
+            }
+        }
+    }
+    SoupMessage* request = soup_message_new(SOUP_METHOD_GET, url->str);
+    g_string_free(url, TRUE);
     SoupMessageHeaders* headers = soup_message_get_request_headers(request);
     soup_message_headers_append(headers, "x-goog-api-key", api_key);
     return request;
@@ -43,13 +62,14 @@ JsonNode* parse_json(GBytes* data)
 }
 
 static
-char* fetch_channel_id(SoupSession* session, const char* handle, const char* api_key)
+char* fetch_channel_id(SoupSession* session, const char* api_key, const char* handle)
 {
-    char* escaped_handle = g_uri_escape_string(handle, NULL, FALSE);
-    char* endpoint = g_strdup_printf("/channels?part=id&forHandle=%s", escaped_handle);
-    SoupMessage* msg = create_youtube_message(endpoint, api_key);
-    g_free(escaped_handle);
-    g_free(endpoint);
+    Param params[] = {
+        {"part", "id"},
+        {"fields", "items/id"},
+        {"forHandle", handle}
+    };
+    SoupMessage* msg = create_youtube_message(api_key, "channels", params, cnt_of_array(params));
 
     GError* err = NULL;
     GBytes* response = soup_session_send_and_read(session, msg, NULL, &err);
@@ -106,15 +126,17 @@ char* fetch_channel_id(SoupSession* session, const char* handle, const char* api
 }
 
 static
-void fetch_live_streams(SoupSession* session, const char* channel_id, const char* api_key)
+void fetch_live_streams(SoupSession* session, const char* api_key, const char* channel_id)
 {
-    char* escaped_channel_id = g_uri_escape_string(channel_id, NULL, FALSE);
-    char* endpoint = g_strdup_printf("/search?part=snippet&channelId=%s&order=date&type=video",
-                                     escaped_channel_id);
-    g_free(escaped_channel_id);
-    SoupMessage* msg = create_youtube_message(endpoint, api_key);
-    g_free(endpoint);
-
+    Param params[] = {
+        {"part", "snippet,id"},
+        {"fields","items(snippet/title,id/videoId)"},
+        {"eventType", "live"},
+        {"channelId", channel_id},
+        {"order", "date"},
+        {"type", "video"}
+    };
+    SoupMessage* msg = create_youtube_message(api_key, "search", params, cnt_of_array(params));
     GError* err = NULL;
     GBytes* response = soup_session_send_and_read(session, msg, NULL, &err);
     if(err) {
@@ -142,14 +164,15 @@ int main(int argc, char** argv)
     }
     api_key = g_strdup(api_key);
     const char* channel_handle = argv[1];
-    char* channel_id = fetch_channel_id(session, channel_handle, api_key);
+    char* channel_id = fetch_channel_id(session, api_key, channel_handle);
     if(!channel_id) {
         g_free(api_key);
         return 1;
     }
     g_printf("Channel ID: %s\n", channel_id);
-    fetch_live_streams(session, channel_id, api_key);
+    fetch_live_streams(session, api_key, channel_id);
 
+    g_free(channel_id);
     g_free(api_key);
     return 0;
 }
