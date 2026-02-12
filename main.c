@@ -4,6 +4,9 @@
 #include <glib-object.h>
 #include <json-glib/json-glib.h>
 
+// TODO: https://developers.google.com/youtube/v3/live/docs/liveChatMessages
+//  - Seems like will have to poll using pollingIntervalMillis and nextPageToken
+
 #define YOUTUBE_API_BASE_URL "https://www.googleapis.com/youtube/v3/"
 
 #define cnt_of_array(arr) (sizeof(arr) / sizeof(arr[0]))
@@ -62,6 +65,19 @@ JsonNode* parse_json(GBytes* data)
 }
 
 static
+JsonArray* match_json_path(JsonNode* root, const char* path)
+{
+    JsonPath* path_obj = json_path_new();
+    json_path_compile(path_obj, path, NULL);
+    JsonNode* results = json_path_match(path_obj, root);
+    JsonArray* results_array = json_node_get_array(results);
+    json_array_ref(results_array);
+    json_node_unref(results);
+    g_clear_object(&path_obj);
+    return results_array;
+}
+
+static
 char* fetch_channel_id(SoupSession* session, const char* api_key, const char* handle)
 {
     Param params[] = {
@@ -73,12 +89,11 @@ char* fetch_channel_id(SoupSession* session, const char* api_key, const char* ha
 
     GError* err = NULL;
     GBytes* response = soup_session_send_and_read(session, msg, NULL, &err);
+    g_clear_object(&msg);
     if(err) {
         g_printerr("Failed to fetch data");
-        g_object_unref(msg);
         return NULL;
     }
-    g_object_unref(msg);
 
     JsonNode* response_root = parse_json(response);
     g_bytes_unref(response);
@@ -87,50 +102,33 @@ char* fetch_channel_id(SoupSession* session, const char* api_key, const char* ha
         return NULL;
     }
 
-    JsonPath* path = json_path_new();
-    json_path_compile(path, "$['items'][0]['id']", NULL);
-    JsonNode* results = json_path_match(path, response_root);
-    g_object_unref(path);
-    JsonArray* results_array = json_node_get_array(results);
-    if(json_array_get_length(results_array) != 1) {
-        g_printerr("Unexpected number of channel ID results");
-        g_object_unref(results);
+    JsonArray* results = match_json_path(response_root, "$['items'][0]['id']");
+    if(json_array_get_length(results) != 1) {
+        g_printerr("Unexpected channel ID results");
+        json_array_unref(results);
         json_node_unref(response_root);
         return NULL;
     }
 
-    JsonNode* id = json_array_get_element(results_array, 0);
-    json_node_ref(id);
-    json_node_unref(results);
-    if(!JSON_NODE_HOLDS_VALUE(id)) {
+    const char* id = json_array_get_string_element(results, 0);
+    if(!id) {
         g_printerr("Unexpected value for channel ID");
-        json_node_free(id);
+        json_array_unref(results);
         json_node_unref(response_root);
         return NULL;
     }
-
-    GValue value = G_VALUE_INIT;
-    json_node_get_value(id, &value);
-    if(!G_VALUE_HOLDS_STRING(&value)) {
-        g_printerr("Unexpected value for channel ID");
-        g_value_unset(&value);
-        json_node_free(id);
-        json_node_unref(response_root);
-        return NULL;
-    }
-    char* result = g_strdup(g_value_get_string(&value));
-    g_value_unset(&value);
-    json_node_free(id);
+    char* id_str = g_strdup(id);
+    json_array_unref(results);
     json_node_unref(response_root);
-    return result;
+    return id_str;
 }
 
 static
-void fetch_live_streams(SoupSession* session, const char* api_key, const char* channel_id)
+GPtrArray* fetch_live_streams(SoupSession* session, const char* api_key, const char* channel_id)
 {
     Param params[] = {
         {"part", "snippet,id"},
-        {"fields","items(snippet/title,id/videoId)"},
+        {"fields","items/id/videoId"},
         {"eventType", "live"},
         {"channelId", channel_id},
         {"order", "date"},
@@ -139,15 +137,32 @@ void fetch_live_streams(SoupSession* session, const char* api_key, const char* c
     SoupMessage* msg = create_youtube_message(api_key, "search", params, cnt_of_array(params));
     GError* err = NULL;
     GBytes* response = soup_session_send_and_read(session, msg, NULL, &err);
+    g_clear_object(&msg);
     if(err) {
         g_printerr("Failed to fetch data");
-        g_object_unref(msg);
-        return;
+        return NULL;
     }
 
-    g_print("Message content: %s", (const char*)g_bytes_get_data(response, NULL));
+    JsonNode* response_root = parse_json(response);
     g_bytes_unref(response);
-    g_object_unref(msg);
+    if(!response_root) {
+        g_printerr("Failed to get JSON root");
+        return NULL;
+    }
+    JsonArray* results = match_json_path(response_root, "$['items'][*]['id']['videoId']");
+    GPtrArray* live_streams = g_ptr_array_new();
+    guint result_count = json_array_get_length(results);
+    for(guint i = 0; i < result_count; ++i) {
+        const char* video_id = json_array_get_string_element(results, i);
+        if(!video_id) {
+            g_warning("Unexpected format for video ID");
+            continue;
+        }
+        g_ptr_array_add(live_streams, g_strdup(video_id));
+    }
+    json_array_unref(results);
+    json_node_unref(response_root);
+    return live_streams;
 }
 
 int main(int argc, char** argv)
@@ -170,8 +185,17 @@ int main(int argc, char** argv)
         return 1;
     }
     g_printf("Channel ID: %s\n", channel_id);
-    fetch_live_streams(session, api_key, channel_id);
+    g_printf("Active live streams:\n");
+    GPtrArray* live_streams = fetch_live_streams(session, api_key, channel_id);
+    guint live_stream_count = live_streams->len;
+    for(guint i = 0; i < live_stream_count; ++i) {
+        g_printf("%s\n", (const char*)live_streams->pdata[i]);
+    }
 
+    for(guint i = 0; i < live_stream_count; ++i) {
+        g_free(live_streams->pdata[i]);
+    }
+    g_ptr_array_free(live_streams, TRUE);
     g_free(channel_id);
     g_free(api_key);
     return 0;
