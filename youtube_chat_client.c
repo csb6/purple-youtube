@@ -23,12 +23,13 @@ struct _YoutubeChatClient {
 G_DEFINE_TYPE(YoutubeChatClient, youtube_chat_client, G_TYPE_OBJECT)
 //G_DEFINE_DYNAMIC_TYPE_EXTENDED(YoutubeChatClient, youtube_chat_client, G_TYPE_OBJECT,
 //                               G_TYPE_FLAG_FINAL, {})
+G_DEFINE_QUARK(youtube-chat-error-quark, youtube_chat_error)
 
 static
 SoupMessage* create_youtube_message(const char* api_key, const char* resource, const Param* params, int param_count);
 
 static
-JsonNode* parse_json(GBytes* data);
+JsonNode* parse_json(GBytes* data, GError** error);
 
 static
 JsonArray* match_json_path(JsonNode* root, const char* path);
@@ -81,28 +82,26 @@ void on_channel_id_response(GObject* source_object, GAsyncResult* result, gpoint
     JsonArray* results = NULL;
 
     if(error) {
-        g_printerr("Failed to fetch data");
         g_task_return_error(task, error);
         goto cleanup;
     }
 
-    response_root = parse_json(response);
+    response_root = parse_json(response, &error);
     if(!response_root) {
-        g_printerr("Failed to get JSON root");
         g_task_return_error(task, error);
         goto cleanup;
     }
 
     results = match_json_path(response_root, "$['items'][0]['id']");
     if(json_array_get_length(results) != 1) {
-        g_printerr("Unexpected channel ID results");
+        g_set_error(&error, YOUTUBE_CHAT_ERROR, 1, "Unexpected channel ID results");
         g_task_return_error(task, error);
         goto cleanup;
     }
 
     const char* id = json_array_get_string_element(results, 0);
     if(!id) {
-        g_printerr("Unexpected value for channel ID");
+        g_set_error(&error, YOUTUBE_CHAT_ERROR, 1, "Unexpected value for channel ID");
         g_task_return_error(task, error);
         goto cleanup;
     }
@@ -146,14 +145,12 @@ void on_live_streams_response(GObject* source_object, GAsyncResult* result, gpoi
     JsonArray* results = NULL;
 
     if(error) {
-        g_printerr("Failed to fetch data");
         g_task_return_error(task, error);
         goto cleanup;
     }
 
-    response_root = parse_json(response);
-    if(!response_root) {
-        g_printerr("Failed to get JSON root");
+    response_root = parse_json(response, &error);
+    if(error) {
         g_task_return_error(task, error);
         goto cleanup;
     }
@@ -223,23 +220,20 @@ SoupMessage* create_youtube_message(const char* api_key, const char* resource, c
 }
 
 static
-JsonNode* parse_json(GBytes* data)
+JsonNode* parse_json(GBytes* data, GError** error)
 {
-    GError* err = NULL;
     gsize data_size = 0;
     gconstpointer data_ptr = g_bytes_get_data(data, &data_size);
     JsonParser* parser = json_parser_new_immutable();
     JsonNode* response_root = NULL;
 
-    json_parser_load_from_data(parser, data_ptr, data_size, &err);
-    if(err) {
-        g_printerr("Failed to parse JSON response");
+    json_parser_load_from_data(parser, data_ptr, data_size, error);
+    if(*error) {
         goto cleanup;
     }
 
     response_root = json_parser_get_root(parser);
     if(!response_root) {
-        g_printerr("Failed to get JSON root");
         goto cleanup;
     }
 cleanup:
