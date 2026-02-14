@@ -4,7 +4,8 @@ project('youtube-chat-client', 'c',
 gobject = dependency('gobject-2.0', required: true)
 libsoup = dependency('libsoup-3.0', required: true)
 json = dependency('json-glib-1.0', required: true)
+librest = dependency('rest-1.0', required: true)
 
 executable('yt-chat', ['main.c', 'youtube_chat_client.c'],
-    dependencies: [gobject, libsoup, json]
+    dependencies: [gobject, libsoup, json, librest]
 )
