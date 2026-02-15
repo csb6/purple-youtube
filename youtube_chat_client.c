@@ -518,12 +518,9 @@ cleanup:
 static
 JsonArray* match_json_path(JsonNode* root, const char* path)
 {
-    JsonPath* path_obj = json_path_new();
-    json_path_compile(path_obj, path, NULL);
-    JsonNode* results = json_path_match(path_obj, root);
+    JsonNode* results = json_path_query(path, root, NULL);
     JsonArray* results_array = json_node_get_array(results);
     json_array_ref(results_array);
     json_node_unref(results);
-    g_clear_object(&path_obj);
     return results_array;
 }
