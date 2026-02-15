@@ -11,6 +11,12 @@ GQuark youtube_chat_error_quark(void);
 #define YOUTUBE_TYPE_CHAT_CLIENT youtube_chat_client_get_type()
 G_DECLARE_FINAL_TYPE(YoutubeChatClient, youtube_chat_client, YOUTUBE, CHAT_CLIENT, GObject)
 
+typedef struct {
+    char* display_name;
+    GDateTime* timestamp;
+    char* content;
+} YoutubeChatMessage;
+
 YoutubeChatClient* youtube_chat_client_new(const char* api_key);
 
 void youtube_chat_client_connect_async(YoutubeChatClient* client, const char* stream_url,

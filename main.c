@@ -4,7 +4,7 @@
 #include "youtube_chat_client.h"
 
 static
-void on_finish(GObject* source_object, GAsyncResult* result, gpointer data)
+void on_error(GObject* source_object, GAsyncResult* result, gpointer data)
 {
     GError* error = NULL;
     YoutubeChatClient* client = (YoutubeChatClient*)source_object;
@@ -12,8 +12,19 @@ void on_finish(GObject* source_object, GAsyncResult* result, gpointer data)
     youtube_chat_client_connect_finish(client, result, &error);
     if(error) {
         g_printerr("Request failed: %s\n", error->message);
+        g_main_loop_quit(main_loop);
     }
-    g_main_loop_quit(main_loop);
+}
+
+static
+void on_new_messages(YoutubeChatClient* client, GPtrArray* messages, gpointer data)
+{
+    for(guint i = 0; i < messages->len; ++i) {
+        YoutubeChatMessage* msg = messages->pdata[i];
+        char* timestamp = g_date_time_format(msg->timestamp, "%I:%M:%S %p");
+        g_print("%s (%s): %s\n\n", msg->display_name, timestamp, msg->content);
+        g_free(timestamp);
+    }
 }
 
 int main(int argc, char** argv)
@@ -33,7 +44,8 @@ int main(int argc, char** argv)
     GMainLoop* main_loop = g_main_loop_new(g_main_context_default(), /*is_running=*/FALSE);
 
     YoutubeChatClient* client = youtube_chat_client_new(api_key);
-    youtube_chat_client_connect_async(client, stream_url, NULL, on_finish, main_loop);
+    g_signal_connect(client, "new-messages", G_CALLBACK(on_new_messages), NULL);
+    youtube_chat_client_connect_async(client, stream_url, NULL, on_error, main_loop);
 
     g_main_loop_run(main_loop);
     g_main_loop_unref(main_loop);
