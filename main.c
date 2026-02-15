@@ -21,9 +21,11 @@ void on_new_messages(YoutubeChatClient* client, GPtrArray* messages, gpointer da
 {
     for(guint i = 0; i < messages->len; ++i) {
         YoutubeChatMessage* msg = messages->pdata[i];
-        char* timestamp = g_date_time_format(msg->timestamp, "%I:%M:%S %p");
-        g_print("%s (%s): %s\n\n", msg->display_name, timestamp, msg->content);
-        g_free(timestamp);
+        GDateTime* local_timestamp = g_date_time_to_local(msg->timestamp);
+        char* timestamp_str = g_date_time_format(local_timestamp, "%I:%M:%S %p");
+        g_print("%s (%s): %s\n\n", msg->display_name, timestamp_str, msg->content);
+        g_free(timestamp_str);
+        g_date_time_unref(local_timestamp);
     }
 }
 
