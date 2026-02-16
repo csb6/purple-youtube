@@ -302,7 +302,7 @@ void fetch_messages_1(GObject* source_object, GAsyncResult* result, gpointer dat
     guint item_count = json_array_get_length(items);
     for(guint i = 0; i < item_count; ++i) {
         YoutubeChatMessage* msg = parse_message(json_array_get_element(items, i), &error);
-        if(error) {
+        if(error || !msg) {
             // Skip unrecognized/malformed messages
             g_clear_error(&error);
             continue;
