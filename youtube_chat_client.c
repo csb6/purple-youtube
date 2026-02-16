@@ -74,7 +74,7 @@ static
 void youtube_chat_client_init(YoutubeChatClient* client)
 {
     client->proxy = rest_proxy_new(YOUTUBE_API_BASE_URL, /*binding_required=*/FALSE);
-    #ifndef NDEBUG
+    #ifdef YOUTUBE_CHAT_CLIENT_LOGGING
     SoupLogger* logger = soup_logger_new(SOUP_LOGGER_LOG_HEADERS);
     rest_proxy_add_soup_feature(client->proxy, SOUP_SESSION_FEATURE(logger));
     g_object_unref(logger);

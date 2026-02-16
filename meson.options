@@ -1,0 +1,5 @@
+option(
+    'log-http',
+    type: 'boolean',
+    value: false,
+    description: 'Log HTTP request/response headers')

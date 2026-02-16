@@ -1,5 +1,10 @@
 project('youtube-chat-client', 'c',
-        default_options: ['c_std=c99', 'warning_level=2'])
+        default_options: ['c_std=c99', 'warning_level=2'],
+        meson_version: '>=1.1.0')
+
+if get_option('log-http')
+  add_project_arguments('-DYOUTUBE_CHAT_CLIENT_LOGGING', language: 'c')
+endif
 
 gobject = dependency('gobject-2.0', required: true)
 libsoup = dependency('libsoup-3.0', required: true)
