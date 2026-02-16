@@ -61,9 +61,6 @@ static
 guint match_json_uint(JsonNode* root, const char* path);
 
 static
-guint match_json_uint(JsonNode* root, const char* path);
-
-static
 GDateTime* match_json_date(JsonNode* root, const char* path);
 
 static
