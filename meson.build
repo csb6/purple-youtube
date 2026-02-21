@@ -11,6 +11,6 @@ libsoup = dependency('libsoup-3.0', required: true)
 json = dependency('json-glib-1.0', required: true)
 librest = dependency('rest-1.0', required: true)
 
-executable('yt-chat', ['main.c', 'youtube_chat_client.c', 'youtube_chat_parser.c'],
+executable('yt-chat', ['src/main.c', 'src/youtube_chat_client.c', 'src/youtube_chat_parser.c'],
     dependencies: [gobject, libsoup, json, librest]
 )
