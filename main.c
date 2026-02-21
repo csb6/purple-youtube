@@ -29,6 +29,7 @@ void on_error(GObject* source_object, GAsyncResult* result, gpointer data)
     youtube_chat_client_connect_finish(client, result, &error);
     if(error) {
         g_printerr("Request failed: %s\n", error->message);
+        g_clear_error(&error);
         g_main_loop_quit(main_loop);
     }
 }

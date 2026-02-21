@@ -189,16 +189,17 @@ cleanup:
 static
 char* match_json_string(JsonNode* root, const char* path)
 {
+    char* match = NULL;
     JsonArray* matches = match_json_path(root, path);
     if(json_array_get_length(matches) != 1) {
-        return NULL;
+        goto cleanup;
     }
     const char* str = json_array_get_string_element(matches, 0);
     if(!str) {
-        json_array_unref(matches);
-        return NULL;
+        goto cleanup;
     }
-    char* match = g_strdup(str);
+    match = g_strdup(str);
+cleanup:
     json_array_unref(matches);
     return match;
 }
@@ -206,17 +207,19 @@ char* match_json_string(JsonNode* root, const char* path)
 static
 guint match_json_uint(JsonNode* root, const char* path)
 {
+    gint64 value = G_MAXUINT;
     JsonArray* matches = match_json_path(root, path);
     if(json_array_get_length(matches) != 1) {
-        return G_MAXUINT;
+        goto cleanup;
     }
-    gint64 value = json_array_get_int_element(matches, 0);
+    value = json_array_get_int_element(matches, 0);
     // Note: cannot represent G_MAXUINT even though it is a valid
     //  value for guint to have. Not going to be a problem since
     //  unlikely to actually be returned (it's a huge value)
     if(value < 0 && value >= G_MAXUINT) {
         value = G_MAXUINT;
     }
+cleanup:
     json_array_unref(matches);
     return (guint)value;
 }
@@ -234,7 +237,7 @@ GDateTime* match_json_date(JsonNode* root, const char* path)
         goto cleanup;
     }
     timestamp = g_date_time_new_from_iso8601(str, NULL);
-    cleanup:
+cleanup:
     json_array_unref(matches);
     return timestamp;
 }
