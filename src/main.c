@@ -21,14 +21,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "youtube_chat_client.h"
 
 static
-void on_error(GObject* source_object, GAsyncResult* result, gpointer data)
+void on_connect(GObject* source_object, GAsyncResult* result, gpointer data)
 {
     GError* error = NULL;
     YoutubeChatClient* client = (YoutubeChatClient*)source_object;
     GMainLoop* main_loop = data;
     youtube_chat_client_connect_finish(client, result, &error);
     if(error) {
-        g_printerr("Request failed: %s\n", error->message);
+        g_printerr("Failed to connect to live stream: %s\n", error->message);
         g_clear_error(&error);
         g_main_loop_quit(main_loop);
     }
@@ -65,7 +65,7 @@ int main(int argc, char** argv)
 
     YoutubeChatClient* client = youtube_chat_client_new(api_key);
     g_signal_connect(client, "new-messages", G_CALLBACK(on_new_messages), NULL);
-    youtube_chat_client_connect_async(client, stream_url, NULL, on_error, main_loop);
+    youtube_chat_client_connect_async(client, stream_url, NULL, on_connect, main_loop);
 
     g_main_loop_run(main_loop);
     g_main_loop_unref(main_loop);

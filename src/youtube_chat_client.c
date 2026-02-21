@@ -44,6 +44,8 @@ struct _YoutubeChatClient {
     RestProxy* proxy;
     char* api_key;
     YoutubeStreamInfo* stream_info;
+    YoutubeChatClientErrorCallback error_cb;
+    gpointer error_cb_data;
 };
 G_DEFINE_TYPE(YoutubeChatClient, youtube_chat_client, G_TYPE_OBJECT)
 //G_DEFINE_DYNAMIC_TYPE_EXTENDED(YoutubeChatClient, youtube_chat_client, G_TYPE_OBJECT,
@@ -110,6 +112,13 @@ YoutubeChatClient* youtube_chat_client_new(const char* api_key)
     YoutubeChatClient* client = g_object_new(YOUTUBE_TYPE_CHAT_CLIENT, NULL);
     client->api_key = g_strdup(api_key);
     return client;
+}
+
+void youtube_chat_client_set_error_callback(YoutubeChatClient* client,
+                                            YoutubeChatClientErrorCallback callback, gpointer data)
+{
+    client->error_cb = callback;
+    client->error_cb_data = data;
 }
 
 static
@@ -255,12 +264,18 @@ void fetch_messages_1(GObject* source_object, GAsyncResult* result, gpointer dat
     if(error) {
         // TODO: implement some kind of retry mechanism then give up
         // Note: will try again using the last known polling interval
+        if(fetch_data->client->error_cb) {
+            fetch_data->client->error_cb(error, fetch_data->client->error_cb_data);
+        }
         goto cleanup;
     }
     const char* response = rest_proxy_call_get_payload(call);
     gssize response_len = rest_proxy_call_get_payload_length(call);
     messages = youtube_parse_chat_messages(response, response_len, &poll_interval, &next_page_token, &error);
     if(error) {
+        if(fetch_data->client->error_cb) {
+            fetch_data->client->error_cb(error, fetch_data->client->error_cb_data);
+        }
         goto cleanup;
     }
     fetch_data->poll_interval = poll_interval;
@@ -277,6 +292,7 @@ cleanup:
         }
         g_ptr_array_unref(messages);
     }
+    g_clear_error(&error);
     g_object_unref(call);
     g_timeout_add_once(fetch_data->poll_interval, fetch_messages_thunk, fetch_data);
 }
