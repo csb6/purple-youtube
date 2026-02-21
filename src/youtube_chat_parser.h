@@ -19,6 +19,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include "youtube_types.h"
 
+G_BEGIN_DECLS
+
 GPtrArray* youtube_parse_chat_messages(const char* response, guint response_len,
                                        guint* poll_interval, char** next_page_token, GError** error);
 YoutubeStreamInfo* youtube_parse_stream_info(const char* response, guint response_len, GError** error);
+
+G_END_DECLS
