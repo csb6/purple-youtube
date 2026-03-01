@@ -48,19 +48,19 @@ GPtrArray* youtube_parse_chat_messages(const char* response, guint response_len,
         goto cleanup;
     }
     // Get interval to wait before sending next request
-    *poll_interval = match_json_uint(response_root, "$['pollingIntervalMillis']");
+    *poll_interval = match_json_uint(response_root, "$.pollingIntervalMillis");
     if(*poll_interval == G_MAXUINT) {
         g_set_error(error, YOUTUBE_CHAT_ERROR, 1, "Invalid polling interval");
         goto cleanup;
     }
     // Get the page token to sent in the next request
-    *next_page_token = match_json_string(response_root, "$['nextPageToken']");
+    *next_page_token = match_json_string(response_root, "$.nextPageToken");
     if(!*next_page_token) {
         g_set_error(error, YOUTUBE_CHAT_ERROR, 1, "Missing nextPageToken");
         goto cleanup;
     }
     // Process the batch of chat messages we have received
-    items = match_json_path(response_root, "$['items'][*]");
+    items = match_json_path(response_root, "$.items[*]");
     if(!items) {
         g_set_error(error, YOUTUBE_CHAT_ERROR, 1, "Missing chat messages");
         goto cleanup;
@@ -91,7 +91,7 @@ YoutubeChatMessage* parse_chat_message(JsonNode* message, GError** error)
     YoutubeChatMessage* msg = NULL;
     char* message_type = NULL;
 
-    message_type = match_json_string(message, "$['snippet']['type']");
+    message_type = match_json_string(message, "$.snippet.type");
     if(!message_type) {
         g_set_error(error, YOUTUBE_CHAT_ERROR, 1, "Missing message type");
         goto cleanup;
@@ -99,19 +99,19 @@ YoutubeChatMessage* parse_chat_message(JsonNode* message, GError** error)
 
     if(strcmp(message_type, "textMessageEvent") == 0) {
         // Get commenter's display name
-        display_name = match_json_string(message, "$['authorDetails']['displayName']");
+        display_name = match_json_string(message, "$.authorDetails.displayName");
         if(!display_name) {
             g_set_error(error, YOUTUBE_CHAT_ERROR, 1, "Missing commenter display name");
             goto cleanup;
         }
         // Get timestamp
-        timestamp = match_json_date(message, "$['snippet']['publishedAt']");
+        timestamp = match_json_date(message, "$.snippet.publishedAt");
         if(!timestamp) {
             g_set_error(error, YOUTUBE_CHAT_ERROR, 1, "Missing comment timestamp");
             g_free(display_name);
             goto cleanup;
         }
-        msg_content = match_json_string(message, "$['snippet']['displayMessage']");
+        msg_content = match_json_string(message, "$.snippet.displayMessage");
         if(!msg_content) {
             g_set_error(error, YOUTUBE_CHAT_ERROR, 1, "Missing message content");
             g_free(display_name);
@@ -143,13 +143,13 @@ YoutubeStreamInfo* youtube_parse_stream_info(const char* response, guint respons
     }
 
     // Get stream title
-    title = match_json_string(response_root, "$['items'][*]['snippet']['title']");
+    title = match_json_string(response_root, "$.items[*].snippet.title");
     if(!title) {
         g_set_error(error, YOUTUBE_CHAT_ERROR, 1, "Missing live stream title");
         goto cleanup;
     }
     // Get stream live chat ID
-    live_chat_id = match_json_string(response_root, "$['items'][*]['liveStreamingDetails']['activeLiveChatId']");
+    live_chat_id = match_json_string(response_root, "$.items[*].liveStreamingDetails.activeLiveChatId");
     if(!live_chat_id) {
         g_set_error(error, YOUTUBE_CHAT_ERROR, 1, "Missing live chat ID");
         g_free(title);
