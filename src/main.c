@@ -77,7 +77,8 @@ void on_authorized(YoutubeChatClient* client, gboolean is_authorized, gpointer d
 {
     ConnectData* connect_data = data;
     if(is_authorized) {
-        youtube_chat_client_connect_to_chat_async(client, connect_data->stream_url, NULL, on_connect, connect_data->main_loop);
+        youtube_chat_client_connect_to_chat_async(client, connect_data->stream_url, NULL,
+                                                  on_connect, connect_data->main_loop);
     } else {
         // Unreachable currently (no notification sent on auth error)
         g_printerr("Failed to authorize\n");

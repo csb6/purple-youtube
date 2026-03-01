@@ -18,23 +18,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "youtube_chat_parser.h"
 #include <json-glib/json-glib.h>
 
-static
-YoutubeChatMessage* parse_chat_message(JsonNode* message, GError** error);
+static YoutubeChatMessage* parse_chat_message(JsonNode* message, GError** error);
 
-static
-JsonNode* parse_json(const char* data, gssize data_len, GError** error);
+static JsonNode* parse_json(const char* data, gssize data_len, GError** error);
 
-static
-char* match_json_string(JsonNode* root, const char* path);
+static char* match_json_string(JsonNode* root, const char* path);
 
-static
-guint match_json_uint(JsonNode* root, const char* path);
+static guint match_json_uint(JsonNode* root, const char* path);
 
-static
-GDateTime* match_json_date(JsonNode* root, const char* path);
+static GDateTime* match_json_date(JsonNode* root, const char* path);
 
-static
-JsonArray* match_json_path(JsonNode* root, const char* path);
+static JsonArray* match_json_path(JsonNode* root, const char* path);
 
 GPtrArray* youtube_parse_chat_messages(const char* response, guint response_len,
                                        guint* poll_interval, char** next_page_token, GError** error)
