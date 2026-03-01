@@ -99,7 +99,7 @@ static void get_live_stream_info_async(YoutubeChatClient* client, const char* vi
 static void get_live_stream_info_1(GObject* source_object, GAsyncResult* result, gpointer data);
 static YoutubeStreamInfo* get_live_stream_info_finish(YoutubeChatClient* client, GAsyncResult* result, GError** error);
 
-static void connect_1(GObject* source_object, GAsyncResult* result, gpointer data);
+static void connect_to_chat_1(GObject* source_object, GAsyncResult* result, gpointer data);
 
 static void fetch_messages_async(YoutubeChatClient* client, FetchData* fetch_data);
 static void fetch_messages_1(GObject* source_object, GAsyncResult* result, gpointer data);
@@ -495,8 +495,8 @@ YoutubeStreamInfo* get_live_stream_info_finish(YoutubeChatClient* client, GAsync
     return g_task_propagate_pointer(G_TASK(result), error);
 }
 
-void youtube_chat_client_connect_async(YoutubeChatClient* client, const char* stream_url,
-                                       GCancellable* cancellable, GAsyncReadyCallback callback, gpointer data)
+void youtube_chat_client_connect_to_chat_async(YoutubeChatClient* client, const char* stream_url,
+                                               GCancellable* cancellable, GAsyncReadyCallback callback, gpointer data)
 {
     GError* error = NULL;
     GTask* task = g_task_new(client, cancellable, callback, data);
@@ -512,12 +512,12 @@ void youtube_chat_client_connect_async(YoutubeChatClient* client, const char* st
         g_object_unref(task);
         return;
     }
-    get_live_stream_info_async(client, video_id, cancellable, connect_1, task);
+    get_live_stream_info_async(client, video_id, cancellable, connect_to_chat_1, task);
     g_free(video_id);
 }
 
 static
-void connect_1(GObject* source_object, GAsyncResult* result, gpointer data)
+void connect_to_chat_1(GObject* source_object, GAsyncResult* result, gpointer data)
 {
     GError* error = NULL;
     GTask* task = data;
@@ -537,7 +537,7 @@ void connect_1(GObject* source_object, GAsyncResult* result, gpointer data)
     g_object_unref(task);
 }
 
-void youtube_chat_client_connect_finish(YoutubeChatClient* client, GAsyncResult* result, GError** error)
+void youtube_chat_client_connect_to_chat_finish(YoutubeChatClient* client, GAsyncResult* result, GError** error)
 {
     g_return_if_fail(g_task_is_valid(result, client));
     g_task_propagate_pointer(G_TASK(result), error);

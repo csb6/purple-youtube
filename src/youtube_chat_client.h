@@ -42,8 +42,8 @@ void youtube_chat_client_generate_auth_url_async(YoutubeChatClient* client,
                                                  GCancellable* cancellable, GAsyncReadyCallback callback, gpointer data);
 char* youtube_chat_client_generate_auth_url_finish(YoutubeChatClient* client, GAsyncResult* result, GError** error);
 
-void youtube_chat_client_connect_async(YoutubeChatClient* client, const char* stream_url,
-                                       GCancellable* cancellable, GAsyncReadyCallback callback, gpointer data);
-void youtube_chat_client_connect_finish(YoutubeChatClient* client, GAsyncResult* result, GError** error);
+void youtube_chat_client_connect_to_chat_async(YoutubeChatClient* client, const char* stream_url,
+                                               GCancellable* cancellable, GAsyncReadyCallback callback, gpointer data);
+void youtube_chat_client_connect_to_chat_finish(YoutubeChatClient* client, GAsyncResult* result, GError** error);
 
 G_END_DECLS
