@@ -444,7 +444,14 @@ static
 void get_live_stream_info_async(YoutubeChatClient* client, const char* video_id,
                                 GCancellable* cancellable, GAsyncReadyCallback callback, gpointer data)
 {
+    GError* error = NULL;
     GTask* task = g_task_new(client, cancellable, callback, data);
+    if(!client->is_authorized) {
+        g_set_error(&error, YOUTUBE_CHAT_ERROR, 1, "Client is not authorized to make API calls");
+        g_task_return_error(task, error);
+        g_object_unref(task);
+        return;
+    }
     RestProxyCall* call = rest_proxy_new_call(REST_PROXY(client->proxy));
     rest_proxy_call_add_params(call,
         "part", "snippet,liveStreamingDetails",
@@ -493,13 +500,20 @@ void youtube_chat_client_connect_async(YoutubeChatClient* client, const char* st
 {
     GError* error = NULL;
     GTask* task = g_task_new(client, cancellable, callback, data);
+    if(!client->is_authorized) {
+        g_set_error(&error, YOUTUBE_CHAT_ERROR, 1, "Client is not authorized to make API calls");
+        g_task_return_error(task, error);
+        g_object_unref(task);
+        return;
+    }
     char* video_id = extract_video_id(stream_url, &error);
     if(error) {
         g_task_return_error(task, error);
-    } else {
-        get_live_stream_info_async(client, video_id, cancellable, connect_1, task);
-        g_free(video_id);
+        g_object_unref(task);
+        return;
     }
+    get_live_stream_info_async(client, video_id, cancellable, connect_1, task);
+    g_free(video_id);
 }
 
 static
@@ -532,6 +546,7 @@ void youtube_chat_client_connect_finish(YoutubeChatClient* client, GAsyncResult*
 static
 void fetch_messages_async(YoutubeChatClient* client, FetchData* fetch_data)
 {
+    g_assert(client->is_authorized);
     RestProxyCall* call = rest_proxy_new_call(REST_PROXY(client->proxy));
     rest_proxy_call_add_params(call,
                                "liveChatId", client->stream_info->live_chat_id,
