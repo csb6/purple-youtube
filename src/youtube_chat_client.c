@@ -40,8 +40,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #define YOUTUBE_API_AUTH_URL "https://accounts.google.com/o/oauth2/v2/auth"
 #define YOUTUBE_API_TOKEN_URL "https://oauth2.googleapis.com/token"
 #define YOUTUBE_API_SCOPE "https://www.googleapis.com/auth/youtube.force-ssl"
-#define LOOPBACK_REDIRECT_URL "http://127.0.0.1:4554"
-#define REDIRECT_PORT 4554
+#define LOOPBACK_REDIRECT_URL "http://127.0.0.1:43215"
+#define REDIRECT_PORT 43215
 #define STATE_STR_LEN 16
 
 static const char oauth_success_response[] =
