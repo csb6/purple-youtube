@@ -214,7 +214,38 @@ YoutubeChatClient* youtube_chat_client_new(const char* client_id, const char* cl
 
     return client;
 }
-// TODO: create constructor that takes in an already valid refresh token (no need to re-authorize)
+
+/**
+ * youtube_chat_client_new_authorized: (constructor)
+ * @client_id: (not nullable) (transfer none): The OAuth client ID.
+ * @client_secret: (not nullable) (transfer none): The OAuth client secret.
+ * @access_token: (not nullable) (transfer none): The OAuth access token.
+ * @refresh_token: (not nullable) (transfer none): The OAuth refresh token.
+ * @access_token_expiration: (not nullable) (transfer full): The expiration time of the access token.
+ *
+ * Creates a new chat client instance. The client will use the given tokens when accessing the YouTube API
+ * and will not require further authorization steps. If the access token is expired, it will use the refresh
+ * token to request a new access token.
+ *
+ * Returns: (not nullable) (transfer full): The chat client instance.
+ */
+YoutubeChatClient* youtube_chat_client_new_authorized(const char* client_id, const char* client_secret,
+                                                      const char* access_token, const char* refresh_token,
+                                                      GDateTime* access_token_expiration)
+{
+    YoutubeChatClient* client = youtube_chat_client_new(client_id, client_secret);
+    rest_oauth2_proxy_set_access_token(client->proxy, access_token);
+    rest_oauth2_proxy_set_refresh_token(client->proxy, refresh_token);
+    GDateTime* curr_time = g_date_time_new_now_utc();
+    if(g_date_time_compare(access_token_expiration, curr_time) >= 0) {
+        // TODO: schedule refresh
+        client->is_authorized = FALSE;
+    } else {
+        client->is_authorized = TRUE;
+    }
+
+    return client;
+}
 
 /**
  * youtube_chat_client_set_error_callback:

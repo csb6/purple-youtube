@@ -19,6 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include <gio/gio.h>
 #include <glib-object.h>
+#include <glib.h>
 #include "youtube_types.h"
 
 G_BEGIN_DECLS
@@ -29,6 +30,10 @@ typedef void (*YoutubeChatClientErrorCallback)(GError* error, gpointer data);
 G_DECLARE_FINAL_TYPE(YoutubeChatClient, youtube_chat_client, YOUTUBE, CHAT_CLIENT, GObject)
 
 YoutubeChatClient* youtube_chat_client_new(const char* client_id, const char* client_secret);
+
+YoutubeChatClient* youtube_chat_client_new_authorized(const char* client_id, const char* client_secret,
+                                                      const char* access_token, const char* refresh_token,
+                                                      GDateTime* access_token_expiration);
 
 void youtube_chat_client_set_error_callback(YoutubeChatClient* client,
                                             YoutubeChatClientErrorCallback callback, gpointer data);
