@@ -18,13 +18,33 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <glib.h>
 #include <glib/gprintf.h>
 #include <glib-object.h>
+#include <stdlib.h>
 #include "youtube_chat_client.h"
+
+static
+void on_auth_url_generated(GObject* source_object, GAsyncResult* result, gpointer data)
+{
+    GError* error = NULL;
+    YoutubeChatClient* client = YOUTUBE_CHAT_CLIENT(source_object);
+    GMainLoop* main_loop = data;
+    char* auth_url = youtube_chat_client_generate_auth_url_finish(client, result, &error);
+    if(error) {
+        g_printerr("Failed to get OAuth authorization URL: %s\n", error->message);
+        g_clear_error(&error);
+        g_main_loop_quit(main_loop);
+    } else {
+        char* cmd = g_strdup_printf("xdg-open \"%s\"", auth_url);
+        system(cmd);
+        g_free(cmd);
+        g_free(auth_url);
+    }
+}
 
 static
 void on_connect(GObject* source_object, GAsyncResult* result, gpointer data)
 {
     GError* error = NULL;
-    YoutubeChatClient* client = (YoutubeChatClient*)source_object;
+    YoutubeChatClient* client = YOUTUBE_CHAT_CLIENT(source_object);
     GMainLoop* main_loop = data;
     youtube_chat_client_connect_finish(client, result, &error);
     if(error) {
@@ -47,30 +67,60 @@ void on_new_messages(YoutubeChatClient* client, GPtrArray* messages, gpointer da
     }
 }
 
+typedef struct {
+    GMainLoop* main_loop;
+    const char* stream_url;
+} ConnectData;
+
+static
+void on_authorized(YoutubeChatClient* client, gboolean is_authorized, gpointer data)
+{
+    ConnectData* connect_data = data;
+    if(is_authorized) {
+        youtube_chat_client_connect_async(client, connect_data->stream_url, NULL, on_connect, connect_data->main_loop);
+    } else {
+        // Unreachable currently (no notification sent on auth error)
+        g_printerr("Failed to authorize\n");
+        g_main_loop_quit(connect_data->main_loop);
+    }
+    g_free(connect_data);
+}
+
 int main(int argc, char** argv)
 {
+    int status = 0;
+    GMainLoop* main_loop = NULL;
+    YoutubeChatClient* client = NULL;
     if(argc != 2) {
         g_printerr("Usage: %s stream_url\n", argv[0]);
         return 1;
     }
-    gchar* api_key = (gchar*)g_getenv("YT_API_KEY");
-    if(!api_key) {
-        g_printerr("Environment variable YT_API_KEY must be set to a YouTube Data API key\n");
-        return 1;
-    }
-    api_key = g_strdup(api_key);
     const char* stream_url = argv[1];
-
-    GMainLoop* main_loop = g_main_loop_new(g_main_context_default(), /*is_running=*/FALSE);
-
-    YoutubeChatClient* client = youtube_chat_client_new(api_key);
+    char** env = g_get_environ();
+    const char* client_id = g_environ_getenv(env, "YT_CLIENT_ID");
+    if(!client_id) {
+        g_printerr("Missing environment variable YT_CLIENT_ID");
+        status = 1;
+        goto cleanup;
+    }
+    const char* client_secret = g_environ_getenv(env, "YT_CLIENT_SECRET");
+    if(!client_secret) {
+        g_printerr("Missing environment variable YT_CLIENT_SECRET");
+        status = 1;
+        goto cleanup;
+    }
+    main_loop = g_main_loop_new(g_main_context_default(), /*is_running=*/FALSE);
+    client = youtube_chat_client_new(client_id, client_secret);
     g_signal_connect(client, "new-messages", G_CALLBACK(on_new_messages), NULL);
-    youtube_chat_client_connect_async(client, stream_url, NULL, on_connect, main_loop);
-
+    ConnectData* connect_data = g_new(ConnectData, 1);
+    connect_data->main_loop = main_loop;
+    connect_data->stream_url = stream_url;
+    g_signal_connect(client, "notify::is-authorized", G_CALLBACK(on_authorized), connect_data);
+    youtube_chat_client_generate_auth_url_async(client, NULL, on_auth_url_generated, NULL);
     g_main_loop_run(main_loop);
-    g_main_loop_unref(main_loop);
+cleanup:
+    if(main_loop) g_main_loop_unref(main_loop);
     g_object_unref(client);
-    g_free(api_key);
-
-    return 0;
+    g_strfreev(env);
+    return status;
 }

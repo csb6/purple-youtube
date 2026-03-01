@@ -17,9 +17,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 #include "youtube_chat_client.h"
 #include <string.h>
+#include <stdbool.h>
 #include <glib.h>
 #include <json-glib/json-glib.h>
 #include <rest/rest.h>
+#include <gio/gio.h>
+#ifdef G_OS_WIN32
+    #include <bcrypt.h>
+#endif /* G_OS_WIN32 */
 #include <libsoup/soup.h>
 #include "youtube_chat_parser.h"
 
@@ -32,6 +37,37 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 //  that need to be read in as they are available. Use rest_proxy_call_continuous()
 
 #define YOUTUBE_API_BASE_URL "https://www.googleapis.com/youtube/v3/"
+#define YOUTUBE_API_AUTH_URL "https://accounts.google.com/o/oauth2/v2/auth"
+#define YOUTUBE_API_TOKEN_URL "https://oauth2.googleapis.com/token"
+#define YOUTUBE_API_SCOPE "https://www.googleapis.com/auth/youtube.force-ssl"
+#define LOOPBACK_REDIRECT_URL "http://127.0.0.1:4554"
+#define REDIRECT_PORT 4554
+#define STATE_STR_LEN 16
+
+static const char oauth_success_response[] =
+    "<!DOCTYPE html>"
+    "<html lang=\"en\">"
+      "<head>"
+        "<title>Purple-Youtube - Authorization Successful</title>"
+      "</head>"
+      "<body>"
+        "<p>Successfully authorized Purple-Youtube! You now can close this tab.</p>"
+      "</body>"
+    "</html>";
+
+static const char oauth_error_response[] =
+    "<!DOCTYPE html>"
+    "<html lang=\"en\">"
+      "<head>"
+        "<title>Purple-Youtube - Error</title>"
+      "</head>"
+      "<body>"
+        "<p>Failed to grant permissions to Purple-Youtube</p>"
+        "<p>%s</p>"
+      "</body>"
+    "</html>";
+
+static const char alphabet[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
 
 typedef struct {
     YoutubeChatClient* client;
@@ -39,10 +75,20 @@ typedef struct {
     guint poll_interval;
 } FetchData;
 
+typedef struct {
+    YoutubeChatClient* client;
+    SoupServerMessage* msg;
+} OAuthData;
+
 struct _YoutubeChatClient {
     GObject parent_instance;
-    RestProxy* proxy;
-    char* api_key;
+    RestOAuth2Proxy* proxy;
+
+    RestPkceCodeChallenge* pkce;
+    char* state_str;
+    SoupServer* auth_response_listener;
+    bool is_authorized;
+
     YoutubeStreamInfo* stream_info;
     YoutubeChatClientErrorCallback error_cb;
     gpointer error_cb_data;
@@ -58,22 +104,28 @@ enum {
 };
 static guint signals[N_SIGNALS] = {0};
 
+enum {
+    PROP_IS_AUTHORIZED = 1,
+    N_PROPERTIES
+};
+static GParamSpec* obj_properties[N_PROPERTIES] = {0};
+
 static
 char* extract_video_id(const char* stream_url, GError** error);
 
 static
+void get_random_string(char* buffer, guint buffer_len, GError** error);
+
+static
 void free_stream_info(gpointer data);
+
+static
+void call_error_callback(YoutubeChatClient* client, GError* error);
 
 
 static
 void youtube_chat_client_init(YoutubeChatClient* client)
 {
-    client->proxy = rest_proxy_new(YOUTUBE_API_BASE_URL, /*binding_required=*/FALSE);
-    #ifdef YOUTUBE_CHAT_CLIENT_LOGGING
-    SoupLogger* logger = soup_logger_new(SOUP_LOGGER_LOG_HEADERS);
-    rest_proxy_add_soup_feature(client->proxy, SOUP_SESSION_FEATURE(logger));
-    g_object_unref(logger);
-    #endif
 }
 
 static
@@ -81,9 +133,24 @@ void youtube_chat_client_finalize(GObject* obj)
 {
     YoutubeChatClient* client = YOUTUBE_CHAT_CLIENT(obj);
     g_clear_object(&client->proxy);
-    g_free(client->api_key);
+    g_free(client->state_str);
+    if(client->pkce) rest_pkce_code_challenge_free(client->pkce);
+    g_clear_object(&client->auth_response_listener);
     free_stream_info(client->stream_info);
     G_OBJECT_CLASS(youtube_chat_client_parent_class)->finalize(obj);
+}
+
+static
+void youtube_chat_client_get_property(GObject* object, guint property_id, GValue* value, GParamSpec* pspec)
+{
+    YoutubeChatClient* client = YOUTUBE_CHAT_CLIENT(object);
+    switch(property_id) {
+        case PROP_IS_AUTHORIZED:
+            g_value_set_boolean(value, client->is_authorized);
+            break;
+        default:
+            G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
+    }
 }
 
 //static
@@ -95,6 +162,7 @@ void youtube_chat_client_class_init(YoutubeChatClientClass* klass)
 {
     GObjectClass* obj_class = G_OBJECT_CLASS(klass);
     obj_class->finalize = youtube_chat_client_finalize;
+    obj_class->get_property = youtube_chat_client_get_property;
 
     GType param_types[] = { G_TYPE_PTR_ARRAY };
     signals[SIG_NEW_MESSAGES] = g_signal_newv(
@@ -105,20 +173,267 @@ void youtube_chat_client_class_init(YoutubeChatClientClass* klass)
         /*n_params=*/1,
         param_types
     );
+
+    obj_properties[PROP_IS_AUTHORIZED] = g_param_spec_boolean(
+        "is-authorized",
+        "Is Authorized",
+        "Is the client authorized to use the YouTube API on behalf of the user?",
+        /*default_value=*/FALSE,
+        G_PARAM_READABLE | G_PARAM_STATIC_STRINGS
+    );
+    g_object_class_install_properties(obj_class, N_PROPERTIES, obj_properties);
 }
 
-YoutubeChatClient* youtube_chat_client_new(const char* api_key)
+
+/**
+ * youtube_chat_client_new: (constructor)
+ * @client_id: (not nullable) (transfer none): The OAuth client ID.
+ * @client_secret: (not nullable) (transfer none): The OAuth client secret.
+ *
+ * Creates a new chat client instance. The client will not initially be authorized to use the YouTube API
+ * and must request permissions using OAuth authorization before making any API requests; see
+ * Youtube.ChatClient.generate_auth_url_async.
+ *
+ * Returns: (not nullable) (transfer full): The chat client instance.
+ */
+YoutubeChatClient* youtube_chat_client_new(const char* client_id, const char* client_secret)
 {
     YoutubeChatClient* client = g_object_new(YOUTUBE_TYPE_CHAT_CLIENT, NULL);
-    client->api_key = g_strdup(api_key);
+    // TODO: see if we can avoid using the client secret entirely
+    client->proxy = rest_oauth2_proxy_new(
+        YOUTUBE_API_AUTH_URL,
+        YOUTUBE_API_TOKEN_URL,
+        LOOPBACK_REDIRECT_URL,
+        client_id, client_secret,
+        YOUTUBE_API_BASE_URL);
+    #ifdef YOUTUBE_CHAT_CLIENT_LOGGING
+    SoupLogger* logger = soup_logger_new(SOUP_LOGGER_LOG_HEADERS);
+    rest_proxy_add_soup_feature(REST_PROXY(client->proxy), SOUP_SESSION_FEATURE(logger));
+    g_object_unref(logger);
+    #endif
+
     return client;
 }
+// TODO: create constructor that takes in an already valid refresh token (no need to re-authorize)
 
+/**
+ * youtube_chat_client_set_error_callback:
+ * @callback: Handler invoke when the error occurs
+ * @data: User data passed to callback
+ *
+ * Registers an error handler for all errors that occur during operations not directly tied to
+ * an asynchronous public method of the chat client (e.g. periodic polling of server,
+ * handling of OAuth redirections, refreshing the OAuth access token)
+ */
 void youtube_chat_client_set_error_callback(YoutubeChatClient* client,
                                             YoutubeChatClientErrorCallback callback, gpointer data)
 {
     client->error_cb = callback;
     client->error_cb_data = data;
+}
+
+/**
+ * call_error_callback:
+ *
+ * Invokes the client's error callback (if present) with the given error
+ */
+static
+void call_error_callback(YoutubeChatClient* client, GError* error)
+{
+    if(client->error_cb) {
+        client->error_cb(error, client->error_cb_data);
+    }
+}
+
+static
+void handle_oauth_auth_response(SoupServer* server, SoupServerMessage* msg, const char* path,
+                                GHashTable* query, gpointer user_data);
+
+/**
+ * youtube_chat_client_generate_auth_url_async:
+ * @cancellable: (nullable) (transfer none): A #GCancellable.
+ * @callback: (nullable): The callback to invoke.
+ * @data: (transfer none): Data for callback.
+ *
+ * Generates a YouTube OAuth authorization URL to grant the application the ability to send and receive
+ * chat messages. The URL will be passed to @callback, and the application must then open it in a web browser.
+ * The user will be able to login to their Google account and grant the application the required permissions.
+ *
+ * The client will listen on a local socket, which the Google authorization server will redirect to after
+ * the user approves the permissions. This will automatically trigger the next step of the OAuth flow.
+ * (retrieving the access and refresh tokens)
+ *
+ * Once the OAuth flow is complete (or if an error occurs), the user's web browser will be served a status
+ * page that indicates the outcome, and the is-authorized property will be set accordingly.
+ *
+ * If OAuth authorization succeeds, it will then be safe to call the client's other public methods.
+ *
+ * The access token will be attached to each YouTube API request, and the access token will be refreshed
+ * asynchronously whenever it expires.
+ */
+void youtube_chat_client_generate_auth_url_async(YoutubeChatClient* client,
+                                                 GCancellable* cancellable, GAsyncReadyCallback callback, gpointer data)
+{
+    GError* error = NULL;
+    GTask* task = g_task_new(client, cancellable, callback, data);
+    if(client->pkce || client->state_str || client->auth_response_listener) {
+        g_set_error(&error, YOUTUBE_CHAT_ERROR, 1, "Already have an in-progress OAuth flow");
+        g_task_return_error(task, error);
+        goto cleanup;
+    }
+    // Generate a PKCE challenge (i.e. a hashed random string). Server will use this value to
+    // validate that the same client is sending all OAuth requests.
+    RestPkceCodeChallenge* pkce = rest_pkce_code_challenge_new_random();
+    // State string serves as a way to tag this request so that later we can be reasonably sure the server
+    // is sending a reply to this request specifically
+    char* state_str = g_malloc0(STATE_STR_LEN);
+    get_random_string(state_str, STATE_STR_LEN, &error);
+    if(error) {
+        g_free(state_str);
+        if(pkce) rest_pkce_code_challenge_free(pkce);
+        g_task_return_error(task, error);
+        goto cleanup;
+    }
+
+    // User must open this URL in a browser and grant the application permissions.
+    // Once they have done so, they will get redirected to LOOPBACK_REDIRECT_URL. We
+    // will be listening on REDIRECT_PORT and will continue the authorization flow from
+    // there.
+    char* auth_url = rest_oauth2_proxy_build_authorization_url(client->proxy,
+                                                               rest_pkce_code_challenge_get_challenge(pkce),
+                                                               YOUTUBE_API_SCOPE, &state_str);
+    SoupServer* auth_response_listener = soup_server_new("server-header", "PurpleYoutube", NULL);
+    // TODO: timeout for server?
+    soup_server_add_handler(auth_response_listener, NULL, handle_oauth_auth_response, client, NULL);
+    soup_server_listen_local(auth_response_listener, REDIRECT_PORT, SOUP_SERVER_LISTEN_IPV4_ONLY, &error);
+    if(error) {
+        g_object_unref(auth_response_listener);
+        g_free(auth_url);
+        if(pkce) rest_pkce_code_challenge_free(pkce);
+        g_free(state_str);
+        g_task_return_error(task, error);
+        goto cleanup;
+    }
+    client->pkce = pkce;
+    client->state_str = state_str;
+    client->auth_response_listener = auth_response_listener;
+    g_task_return_pointer(task, auth_url, g_free);
+cleanup:
+    g_object_unref(task);
+}
+
+/**
+ * youtube_chat_client_generate_auth_url_finish:
+ * @result: The #GAsyncResult passed to your callback.
+ * @error: The return location for a recoverable error.
+ *
+ * Completes the Youtube.ChatClient.generate_auth_url_async operation.
+ *
+ * If successful, it returns the authorization URL, which the user should then open in a web browser
+ * in order to authorize the application to use the YouTube API.
+ *
+ * Returns: (transfer full): The OAuth authorization URL, or NULL on error.
+ */
+char* youtube_chat_client_generate_auth_url_finish(YoutubeChatClient* client, GAsyncResult* result, GError** error)
+{
+    g_return_val_if_fail(g_task_is_valid(result, client), NULL);
+    return g_task_propagate_pointer(G_TASK(result), error);
+}
+
+static
+void handle_oauth_access_token_response(GObject* source_object, GAsyncResult* result, gpointer data);
+
+/**
+ * set_server_error_response:
+ * @status: The HTTP error status to send.
+ * @error_str: (transfer none) (not nullable): The error message to display on the error page.
+ *
+ * Sends an error page to the user's web browser indicating an error occurred during OAuth
+ * authorization.
+ */
+static
+void set_server_error_response(SoupServerMessage* msg, SoupStatus status, const char* error_str)
+{
+    soup_server_message_set_status(msg, status, NULL);
+    char* content = g_strdup_printf(oauth_error_response, error_str);
+    soup_server_message_set_response(msg, "text/html", SOUP_MEMORY_TAKE, content, strlen(content));
+}
+
+static
+void handle_oauth_auth_response(SoupServer* server, SoupServerMessage* msg, const char* path,
+                                GHashTable* query, gpointer user_data)
+{
+    GError* error = NULL;
+    YoutubeChatClient* client = user_data;
+    char* error_str = g_hash_table_lookup(query, "error");
+    if(error_str) {
+        g_set_error(&error, YOUTUBE_CHAT_ERROR, 1, "OAuth redirect error: %s", error_str);
+        call_error_callback(client, error);
+        set_server_error_response(msg, SOUP_STATUS_FORBIDDEN, error->message);
+        goto cleanup;
+    }
+    char* auth_code = g_hash_table_lookup(query, "code");
+    if(!auth_code) {
+        g_set_error(&error, YOUTUBE_CHAT_ERROR, 1, "OAuth redirect error: Missing auth code");
+        set_server_error_response(msg, SOUP_STATUS_BAD_REQUEST, error->message);
+        call_error_callback(client, error);
+        goto cleanup;
+    }
+    char* state_str = g_hash_table_lookup(query, "state");
+    if(!state_str || strcmp(state_str, client->state_str) != 0) {
+        g_set_error(&error, YOUTUBE_CHAT_ERROR, 1, "OAuth redirect error: Missing state string");
+        set_server_error_response(msg, SOUP_STATUS_BAD_REQUEST, error->message);
+        call_error_callback(client, error);
+        goto cleanup;
+    }
+    // TODO: use a different email for the purple-youtube Google app
+    soup_server_message_pause(msg);
+    g_object_ref(msg);
+    OAuthData* oauth_data = g_new(OAuthData, 1);
+    oauth_data->client = client;
+    oauth_data->msg = msg;
+    rest_oauth2_proxy_fetch_access_token_async(client->proxy, auth_code,
+                                               rest_pkce_code_challenge_get_verifier(client->pkce),
+                                               NULL, handle_oauth_access_token_response, oauth_data);
+cleanup:
+    if(client->pkce) rest_pkce_code_challenge_free(client->pkce);
+    client->pkce = NULL;
+    g_free(client->state_str);
+    client->state_str = NULL;
+    // TODO: when to unref the server instance and the msg?
+}
+
+static
+void handle_oauth_access_token_response(GObject* source_object, GAsyncResult* result, gpointer data)
+{
+    GError* error = NULL;
+    RestOAuth2Proxy* proxy = REST_OAUTH2_PROXY(source_object);
+    OAuthData* oauth_data = data;
+    YoutubeChatClient* client = oauth_data->client;
+    SoupServerMessage* server_msg = oauth_data->msg;
+
+    rest_oauth2_proxy_fetch_access_token_finish(proxy, result, &error);
+    if(error) {
+        call_error_callback(client, error);
+        // TODO: map GError to HTTP error code
+        set_server_error_response(server_msg, SOUP_STATUS_FORBIDDEN, error->message);
+    } else {
+        // From this point forwards, OAuth2Proxy will add the access token as an
+        // 'Authorization: Bearer <access_token>' header to each request
+        client->is_authorized = TRUE;
+        // TODO: set to false if token refresh operation fails
+        g_object_notify_by_pspec(G_OBJECT(client), obj_properties[PROP_IS_AUTHORIZED]);
+        // Send the user's web browser a message letting them know authorization was successful
+        soup_server_message_set_status(server_msg, SOUP_STATUS_OK, NULL);
+        soup_server_message_set_response(server_msg, "text/html", SOUP_MEMORY_STATIC,
+                                         oauth_success_response, sizeof(oauth_success_response));
+        // TODO: schedule next refresh token update
+        // TODO: how to ensure requests do not use expired access tokens
+        // TODO: seems like librest is treating some error responses as success. If we send an empty client
+        //  secret, everything appears to succeed but the Bearer token is '(null)', causing API calls to fail
+    }
+    soup_server_message_unpause(server_msg);
+    g_free(oauth_data);
 }
 
 static
@@ -140,8 +455,7 @@ void get_live_stream_info_async(YoutubeChatClient* client, const char* video_id,
                                 GCancellable* cancellable, GAsyncReadyCallback callback, gpointer data)
 {
     GTask* task = g_task_new(client, cancellable, callback, data);
-    RestProxyCall* call = rest_proxy_new_call(client->proxy);
-    rest_proxy_call_add_header(call, "x-goog-api-key", client->api_key);
+    RestProxyCall* call = rest_proxy_new_call(REST_PROXY(client->proxy));
     rest_proxy_call_add_params(call,
         "part", "snippet,liveStreamingDetails",
         "fields", "items(snippet(title),liveStreamingDetails(activeLiveChatId))",
@@ -234,8 +548,7 @@ void fetch_messages_thunk(gpointer data);
 static
 void fetch_messages_async(YoutubeChatClient* client, FetchData* fetch_data)
 {
-    RestProxyCall* call = rest_proxy_new_call(client->proxy);
-    rest_proxy_call_add_header(call, "x-goog-api-key", client->api_key);
+    RestProxyCall* call = rest_proxy_new_call(REST_PROXY(client->proxy));
     rest_proxy_call_add_params(call,
                                "liveChatId", client->stream_info->live_chat_id,
                                "part", "snippet,authorDetails",
@@ -264,18 +577,14 @@ void fetch_messages_1(GObject* source_object, GAsyncResult* result, gpointer dat
     if(error) {
         // TODO: implement some kind of retry mechanism then give up
         // Note: will try again using the last known polling interval
-        if(fetch_data->client->error_cb) {
-            fetch_data->client->error_cb(error, fetch_data->client->error_cb_data);
-        }
+        call_error_callback(fetch_data->client, error);
         goto cleanup;
     }
     const char* response = rest_proxy_call_get_payload(call);
     gssize response_len = rest_proxy_call_get_payload_length(call);
     messages = youtube_parse_chat_messages(response, response_len, &poll_interval, &next_page_token, &error);
     if(error) {
-        if(fetch_data->client->error_cb) {
-            fetch_data->client->error_cb(error, fetch_data->client->error_cb_data);
-        }
+        call_error_callback(fetch_data->client, error);
         goto cleanup;
     }
     fetch_data->poll_interval = poll_interval;
@@ -334,4 +643,51 @@ cleanup:
     g_uri_unref(stream_uri);
     if(params) g_hash_table_unref(params);
     return video_id;
+}
+
+/**
+ * get_random_string:
+ * @buffer (out): (transfer none): Buffer in which to place the string.
+ * @buffer_len: Size of the buffer. Must be at least 1.
+ * @error (inout): Error.
+ *
+ * Generates a random null-terminated string of the specified length using a high-entropy source
+ * of randomness.
+ */
+static
+void get_random_string(char* buffer, guint buffer_len, GError** error)
+{
+    g_assert(buffer_len > 0);
+    // Leave space for a null terminator
+    --buffer_len;
+    #if defined(G_OS_UNIX)
+        GFile* urandom = g_file_new_for_path("/dev/urandom");
+        GFileInputStream* rand_stream = g_file_read(urandom, NULL, error);
+        if(*error) {
+            goto cleanup;
+        }
+        gsize bytes_read = 0;
+        g_input_stream_read_all(G_INPUT_STREAM(rand_stream), buffer, buffer_len, &bytes_read, NULL, error);
+        if(*error) {
+            goto cleanup;
+        }
+    #elif defined(G_OS_WIN32)
+        // TODO: test on Windows somehow
+        NTSTATUS status = BCryptGenRandom(NULL, buffer, buffer_len, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+        if(status != STATUS_SUCCESS) {
+            g_set_error(error, YOUTUBE_CHAT_ERROR, 1, "Failed to read random data during OAuth authorization");
+            goto cleanup;
+        }
+    #else
+        #error "The cryptographic random number generator API for this platform is not supported"
+    #endif
+    for(guint i = 0; i < buffer_len; ++i) {
+        buffer[i] = alphabet[buffer[i] % (sizeof(alphabet) - 1)];
+    }
+    buffer[buffer_len] = '\0';
+cleanup:
+    #ifdef G_OS_UNIX
+        g_object_unref(rand_stream);
+        g_object_unref(urandom);
+    #endif /* G_OS_UNIX */
 }

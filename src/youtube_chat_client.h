@@ -28,10 +28,14 @@ typedef void (*YoutubeChatClientErrorCallback)(GError* error, gpointer data);
 #define YOUTUBE_TYPE_CHAT_CLIENT youtube_chat_client_get_type()
 G_DECLARE_FINAL_TYPE(YoutubeChatClient, youtube_chat_client, YOUTUBE, CHAT_CLIENT, GObject)
 
-YoutubeChatClient* youtube_chat_client_new(const char* api_key);
+YoutubeChatClient* youtube_chat_client_new(const char* client_id, const char* client_secret);
 
 void youtube_chat_client_set_error_callback(YoutubeChatClient* client,
                                             YoutubeChatClientErrorCallback callback, gpointer data);
+
+void youtube_chat_client_generate_auth_url_async(YoutubeChatClient* client,
+                                                 GCancellable* cancellable, GAsyncReadyCallback callback, gpointer data);
+char* youtube_chat_client_generate_auth_url_finish(YoutubeChatClient* client, GAsyncResult* result, GError** error);
 
 void youtube_chat_client_connect_async(YoutubeChatClient* client, const char* stream_url,
                                        GCancellable* cancellable, GAsyncReadyCallback callback, gpointer data);
