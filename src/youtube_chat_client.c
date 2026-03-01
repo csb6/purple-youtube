@@ -44,42 +44,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #define REDIRECT_PORT 43215
 #define STATE_STR_LEN 16
 
-static const char oauth_success_response[] =
-    "<!DOCTYPE html>"
-    "<html lang=\"en\">"
-      "<head>"
-        "<title>Purple-Youtube - Authorization Successful</title>"
-      "</head>"
-      "<body>"
-        "<p>Successfully authorized Purple-Youtube! You now can close this tab.</p>"
-      "</body>"
-    "</html>";
-
-static const char oauth_error_response[] =
-    "<!DOCTYPE html>"
-    "<html lang=\"en\">"
-      "<head>"
-        "<title>Purple-Youtube - Error</title>"
-      "</head>"
-      "<body>"
-        "<p>Failed to grant permissions to Purple-Youtube</p>"
-        "<p>%s</p>"
-      "</body>"
-    "</html>";
-
-static const char alphabet[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
-
-typedef struct {
-    YoutubeChatClient* client;
-    char* next_page_token;
-    guint poll_interval;
-} FetchData;
-
-typedef struct {
-    YoutubeChatClient* client;
-    SoupServerMessage* msg;
-} OAuthData;
-
 struct _YoutubeChatClient {
     GObject parent_instance;
     RestOAuth2Proxy* proxy;
@@ -110,17 +74,48 @@ enum {
 };
 static GParamSpec* obj_properties[N_PROPERTIES] = {0};
 
-static
-char* extract_video_id(const char* stream_url, GError** error);
+typedef struct {
+    YoutubeChatClient* client;
+    char* next_page_token;
+    guint poll_interval;
+} FetchData;
 
-static
-void get_random_string(char* buffer, guint buffer_len, GError** error);
+typedef struct {
+    YoutubeChatClient* client;
+    SoupServerMessage* msg;
+} OAuthData;
 
-static
-void free_stream_info(gpointer data);
+/* OAuth functions */
 
-static
-void call_error_callback(YoutubeChatClient* client, GError* error);
+static void handle_oauth_auth_response(SoupServer* server, SoupServerMessage* msg, const char* path,
+                                       GHashTable* query, gpointer user_data);
+
+static void handle_oauth_access_token_response(GObject* source_object, GAsyncResult* result, gpointer data);
+
+/* YouTube API functions */
+
+static void get_live_stream_info_async(YoutubeChatClient* client, const char* video_id,
+                                       GCancellable* cancellable, GAsyncReadyCallback callback, gpointer data);
+static void get_live_stream_info_1(GObject* source_object, GAsyncResult* result, gpointer data);
+static YoutubeStreamInfo* get_live_stream_info_finish(YoutubeChatClient* client, GAsyncResult* result, GError** error);
+
+static void connect_1(GObject* source_object, GAsyncResult* result, gpointer data);
+
+static void fetch_messages_async(YoutubeChatClient* client, FetchData* fetch_data);
+static void fetch_messages_1(GObject* source_object, GAsyncResult* result, gpointer data);
+static void fetch_messages_thunk(gpointer data);
+
+/* Helper functions */
+
+static char* extract_video_id(const char* stream_url, GError** error);
+
+static void get_random_string(char* buffer, guint buffer_len, GError** error);
+
+static void free_stream_info(gpointer data);
+
+static void call_error_callback(YoutubeChatClient* client, GError* error);
+
+static void set_server_error_response(SoupServerMessage* msg, SoupStatus status, const char* error_str);
 
 
 static
@@ -183,7 +178,6 @@ void youtube_chat_client_class_init(YoutubeChatClientClass* klass)
     );
     g_object_class_install_properties(obj_class, N_PROPERTIES, obj_properties);
 }
-
 
 /**
  * youtube_chat_client_new: (constructor)
@@ -263,22 +257,7 @@ void youtube_chat_client_set_error_callback(YoutubeChatClient* client,
     client->error_cb_data = data;
 }
 
-/**
- * call_error_callback:
- *
- * Invokes the client's error callback (if present) with the given error
- */
-static
-void call_error_callback(YoutubeChatClient* client, GError* error)
-{
-    if(client->error_cb) {
-        client->error_cb(error, client->error_cb_data);
-    }
-}
-
-static
-void handle_oauth_auth_response(SoupServer* server, SoupServerMessage* msg, const char* path,
-                                GHashTable* query, gpointer user_data);
+/* OAuth functions */
 
 /**
  * youtube_chat_client_generate_auth_url_async:
@@ -363,31 +342,12 @@ cleanup:
  * If successful, it returns the authorization URL, which the user should then open in a web browser
  * in order to authorize the application to use the YouTube API.
  *
- * Returns: (transfer full): The OAuth authorization URL, or NULL on error.
+ * Returns: (transfer full) (nullable): The OAuth authorization URL, or NULL on error.
  */
 char* youtube_chat_client_generate_auth_url_finish(YoutubeChatClient* client, GAsyncResult* result, GError** error)
 {
     g_return_val_if_fail(g_task_is_valid(result, client), NULL);
     return g_task_propagate_pointer(G_TASK(result), error);
-}
-
-static
-void handle_oauth_access_token_response(GObject* source_object, GAsyncResult* result, gpointer data);
-
-/**
- * set_server_error_response:
- * @status: The HTTP error status to send.
- * @error_str: (transfer none) (not nullable): The error message to display on the error page.
- *
- * Sends an error page to the user's web browser indicating an error occurred during OAuth
- * authorization.
- */
-static
-void set_server_error_response(SoupServerMessage* msg, SoupStatus status, const char* error_str)
-{
-    soup_server_message_set_status(msg, status, NULL);
-    char* content = g_strdup_printf(oauth_error_response, error_str);
-    soup_server_message_set_response(msg, "text/html", SOUP_MEMORY_TAKE, content, strlen(content));
 }
 
 static
@@ -437,6 +397,17 @@ cleanup:
 static
 void handle_oauth_access_token_response(GObject* source_object, GAsyncResult* result, gpointer data)
 {
+    static const char success_response[] =
+        "<!DOCTYPE html>"
+        "<html lang=\"en\">"
+          "<head>"
+            "<title>Purple-Youtube - Authorization Successful</title>"
+          "</head>"
+          "<body>"
+            "<p>Successfully authorized Purple-Youtube! You now can close this tab.</p>"
+          "</body>"
+        "</html>";
+
     GError* error = NULL;
     RestOAuth2Proxy* proxy = REST_OAUTH2_PROXY(source_object);
     OAuthData* oauth_data = data;
@@ -457,7 +428,7 @@ void handle_oauth_access_token_response(GObject* source_object, GAsyncResult* re
         // Send the user's web browser a message letting them know authorization was successful
         soup_server_message_set_status(server_msg, SOUP_STATUS_OK, NULL);
         soup_server_message_set_response(server_msg, "text/html", SOUP_MEMORY_STATIC,
-                                         oauth_success_response, sizeof(oauth_success_response));
+                                         success_response, sizeof(success_response));
         // TODO: schedule next refresh token update
         // TODO: how to ensure requests do not use expired access tokens
         // TODO: seems like librest is treating some error responses as success. If we send an empty client
@@ -467,19 +438,7 @@ void handle_oauth_access_token_response(GObject* source_object, GAsyncResult* re
     g_free(oauth_data);
 }
 
-static
-void free_stream_info(gpointer data)
-{
-    if(data) {
-        YoutubeStreamInfo* stream_info = data;
-        g_free(stream_info->title);
-        g_free(stream_info->live_chat_id);
-        g_free(stream_info);
-    }
-}
-
-static
-void get_live_stream_info_1(GObject* source_object, GAsyncResult* result, gpointer data);
+/* YouTube API functions */
 
 static
 void get_live_stream_info_async(YoutubeChatClient* client, const char* video_id,
@@ -529,9 +488,6 @@ YoutubeStreamInfo* get_live_stream_info_finish(YoutubeChatClient* client, GAsync
     return g_task_propagate_pointer(G_TASK(result), error);
 }
 
-static
-void connect_1(GObject* source_object, GAsyncResult* result, gpointer data);
-
 void youtube_chat_client_connect_async(YoutubeChatClient* client, const char* stream_url,
                                        GCancellable* cancellable, GAsyncReadyCallback callback, gpointer data)
 {
@@ -545,9 +501,6 @@ void youtube_chat_client_connect_async(YoutubeChatClient* client, const char* st
         g_free(video_id);
     }
 }
-
-static
-void fetch_messages_async(YoutubeChatClient* client, FetchData* fetch_data);
 
 static
 void connect_1(GObject* source_object, GAsyncResult* result, gpointer data)
@@ -570,11 +523,11 @@ void connect_1(GObject* source_object, GAsyncResult* result, gpointer data)
     g_object_unref(task);
 }
 
-static
-void fetch_messages_1(GObject* source_object, GAsyncResult* result, gpointer data);
-
-static
-void fetch_messages_thunk(gpointer data);
+void youtube_chat_client_connect_finish(YoutubeChatClient* client, GAsyncResult* result, GError** error)
+{
+    g_return_if_fail(g_task_is_valid(result, client));
+    g_task_propagate_pointer(G_TASK(result), error);
+}
 
 static
 void fetch_messages_async(YoutubeChatClient* client, FetchData* fetch_data)
@@ -644,11 +597,7 @@ void fetch_messages_thunk(gpointer data)
     fetch_messages_async(fetch_data->client, fetch_data);
 }
 
-void youtube_chat_client_connect_finish(YoutubeChatClient* client, GAsyncResult* result, GError** error)
-{
-    g_return_if_fail(g_task_is_valid(result, client));
-    g_task_propagate_pointer(G_TASK(result), error);
-}
+/* Helper functions */
 
 static
 char* extract_video_id(const char* stream_url, GError** error)
@@ -688,6 +637,8 @@ cleanup:
 static
 void get_random_string(char* buffer, guint buffer_len, GError** error)
 {
+    static const char alphabet[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
+
     g_assert(buffer_len > 0);
     // Leave space for a null terminator
     --buffer_len;
@@ -721,4 +672,56 @@ cleanup:
         g_object_unref(rand_stream);
         g_object_unref(urandom);
     #endif /* G_OS_UNIX */
+}
+
+static
+void free_stream_info(gpointer data)
+{
+    if(data) {
+        YoutubeStreamInfo* stream_info = data;
+        g_free(stream_info->title);
+        g_free(stream_info->live_chat_id);
+        g_free(stream_info);
+    }
+}
+
+/**
+ * call_error_callback:
+ *
+ * Invokes the client's error callback (if present) with the given error
+ */
+static
+void call_error_callback(YoutubeChatClient* client, GError* error)
+{
+    if(client->error_cb) {
+        client->error_cb(error, client->error_cb_data);
+    }
+}
+
+/**
+ * set_server_error_response:
+ * @status: The HTTP error status to send.
+ * @error_str: (transfer none) (not nullable): The error message to display on the error page.
+ *
+ * Prepares an error page to the user's web browser indicating an error occurred during OAuth
+ * authorization.
+ */
+static
+void set_server_error_response(SoupServerMessage* msg, SoupStatus status, const char* error_str)
+{
+    static const char error_response[] =
+        "<!DOCTYPE html>"
+        "<html lang=\"en\">"
+          "<head>"
+            "<title>Purple-Youtube - Error</title>"
+          "</head>"
+          "<body>"
+            "<p>Failed to grant permissions to Purple-Youtube:</p>"
+            "<p>%s</p>"
+          "</body>"
+        "</html>";
+
+    soup_server_message_set_status(msg, status, NULL);
+    char* content = g_strdup_printf(error_response, error_str);
+    soup_server_message_set_response(msg, "text/html", SOUP_MEMORY_TAKE, content, strlen(content));
 }
