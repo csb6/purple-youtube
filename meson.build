@@ -12,6 +12,11 @@ json = dependency('json-glib-1.0', required: true)
 librest = dependency('rest-1.0', required: true)
 gio = dependency('gio-2.0', required: true)
 
-executable('yt-chat', ['src/main.c', 'src/youtube_chat_client.c', 'src/youtube_chat_parser.c'],
-    dependencies: [gobject, libsoup, json, librest, gio]
+purple_youtube = library('purple-youtube', ['src/youtube_chat_client.c', 'src/youtube_chat_parser.c'],
+  dependencies: [gobject, libsoup, json, librest, gio],
+)
+
+executable('yt-chat', ['src/main.c'],
+    dependencies: [gobject],
+    link_with: [purple_youtube]
 )
