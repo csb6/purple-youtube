@@ -1,0 +1,7 @@
+[wrap-git]
+url=https://gitlab.gnome.org/bugaevc/peel.git
+revision=HEAD
+depth=1
+
+[provide]
+program_names=peel-gen

@@ -1,9 +1,10 @@
-project('youtube-chat-client', 'c',
+project('youtube-chat-client', 'c', 'cpp',
         default_options: ['c_std=c99', 'warning_level=2'],
         meson_version: '>=1.1.0')
+add_project_arguments('-std=c++20', language: 'cpp')
 
 if get_option('log-http')
-  add_project_arguments('-DYOUTUBE_CHAT_CLIENT_LOGGING', language: 'c')
+  add_project_arguments('-DYOUTUBE_CHAT_CLIENT_LOGGING', language: ['c', 'cpp'])
 endif
 
 gobject = dependency('gobject-2.0', required: true)
@@ -11,12 +12,33 @@ libsoup = dependency('libsoup-3.0', required: true)
 json = dependency('json-glib-1.0', required: true)
 librest = dependency('rest-1.0', required: true)
 gio = dependency('gio-2.0', required: true)
+peel = dependency('peel', required: true)
 
-purple_youtube = library('purple-youtube', ['src/youtube_chat_client.c', 'src/youtube_chat_parser.c'],
-  dependencies: [gobject, libsoup, json, librest, gio],
+peel_gen = find_program('peel-gen')
+custom_target('peel-codegen',
+  command: [
+    peel_gen,
+    '--recursive',
+    '--out-dir', '@OUTDIR@',
+    '--api-tweaks', '@SOURCE_ROOT@/src/api-tweaks.txt',
+    'Rest', '1.0',
+    'Json', '1.0',
+  ],
+  input: 'src/api-tweaks.txt',
+  output: 'peel-codegen',
+  env: {
+    'GI_GIR_PATH': '/usr/lib/x86_64-linux-gnu/gir-1.0'
+  },
 )
 
-executable('yt-chat', ['src/main.c'],
-    dependencies: [gobject],
+purple_youtube = library('purple-youtube', [
+    'src/youtube_chat_client.cpp',
+    'src/youtube_chat_parser.cpp',
+  ],
+  dependencies: [gobject, libsoup, json, librest, gio, peel],
+)
+
+executable('yt-chat', ['src/main.cpp'],
+    dependencies: [gobject, peel],
     link_with: [purple_youtube]
 )

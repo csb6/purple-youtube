@@ -1,0 +1,7 @@
+# librest
+skip rest_proxy_simple_run
+skip rest_proxy_simple_run_valist
+skip RestProxy::vfunc_simple_run_valist
+
+# json-glib
+skip json_parser_has_assignment
