@@ -17,22 +17,24 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 #pragma once
 
-#include <glib.h>
+#include <vector>
+#include <optional>
+#include <peel/GLib/Error.h>
+#include <peel/String.h>
+#include <peel/UniquePtr.h>
+#include <peel/ArrayRef.h>
+#include "youtube_types.hpp"
 
-G_BEGIN_DECLS
+namespace youtube {
 
-#define YOUTUBE_CHAT_ERROR youtube_chat_error_quark()
-GQuark youtube_chat_error_quark(void);
+struct ResponseInfo {
+    std::vector<ChatMessage> messages;
+    guint poll_interval;
+    peel::String next_page_token;
+};
 
-typedef struct {
-    char* title;
-    char* live_chat_id;
-} YoutubeStreamInfo;
+std::optional<StreamInfo> parse_stream_info(peel::ArrayRef<const char> response, peel::UniquePtr<glib::Error>* error);
 
-typedef struct {
-    char* display_name;
-    GDateTime* timestamp;
-    char* content;
-} YoutubeChatMessage;
+std::optional<ResponseInfo> parse_chat_messages(peel::ArrayRef<const char> response, peel::UniquePtr<glib::Error>* error);
 
-G_END_DECLS
+} // namespace youtube
