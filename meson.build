@@ -34,6 +34,7 @@ custom_target('peel-codegen',
 purple_youtube = library('purple-youtube', [
     'src/youtube_chat_client.cpp',
     'src/youtube_chat_parser.cpp',
+    'src/one_shot_server.cpp',
   ],
   dependencies: [gobject, libsoup, json, librest, gio, peel],
 )
