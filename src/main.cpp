@@ -20,6 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/GLib/MainContext.h>
 #include <peel/GLib/DateTime.h>
 #include <peel/ArrayRef.h>
+#include <peel/UniquePtr.h>
 #include "youtube_types.hpp"
 #include "youtube_chat_client.hpp"
 #include <memory>
@@ -48,6 +49,10 @@ int main(int argc, char** argv)
 
     auto main_loop = glib::MainLoop::create(glib::MainContext::default_(), /*is_running=*/false);
     auto client = youtube::ChatClient::create(client_id, client_secret);
+    client->set_error_callback([main_loop](glib::Error* error) {
+        g_printerr("Error: %s\n", error->message);
+        main_loop->quit();
+    });
     client->connect_new_messages([](youtube::ChatClient*, void* data) {
         auto& messages = *static_cast<peel::ArrayRef<const youtube::ChatMessage>*>(data);
         for(const auto& msg : messages) {
@@ -56,21 +61,9 @@ int main(int argc, char** argv)
             g_print("%s (%s): %s\n\n", msg.display_name.c_str(), timestamp_str.c_str(), msg.content.c_str());
         }
     });
-    client->connect_notify(client->prop_is_authorized(),
-                           [stream_url, main_loop](gobject::Object* obj, bool is_authorized) {
-        auto* client = static_cast<youtube::ChatClient*>(obj);
-        if(is_authorized) {
-            // TODO: handle error returned by the coroutine on completion
-            client->connect_to_chat_async(stream_url, nullptr).start();
-        } else {
-            // Unreachable currently (no notification sent on auth error)
-            g_printerr("Failed to authorize\n");
-            main_loop->quit();
-        }
-    });
 
     peel::UniquePtr<glib::Error> error;
-    auto auth_url = client->generate_auth_url_async(&error);
+    auto auth_url = client->generate_auth_url(&error);
     if(error) {
         g_printerr("Failed to get OAuth authorization URL: %s\n", error->message);
         return 1;
@@ -78,6 +71,15 @@ int main(int argc, char** argv)
     char* cmd = g_strdup_printf("xdg-open \"%s\"", auth_url.c_str());
     system(cmd);
     g_free(cmd);
+    auto main_task = [main_loop, client, stream_url]() -> Task<void> {
+        auto error = co_await client->connect_to_chat_async(stream_url, nullptr);
+        if(error) {
+            g_printerr("Error: %s\n", error->message);
+            main_loop->quit();
+        }
+        co_return {};
+    };
+    main_task().start();
     main_loop->run();
 
     return 0;

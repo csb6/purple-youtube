@@ -46,19 +46,12 @@ public:
                                                       glib::DateTime* access_token_expiration);
 
     void set_error_callback(ErrorCallback&&);
-    peel::String generate_auth_url_async(peel::UniquePtr<glib::Error>*);
+    peel::String generate_auth_url(peel::UniquePtr<glib::Error>*);
     Task<void> connect_to_chat_async(const char* stream_url, gio::Cancellable* cancellable);
     bool get_is_authorized() const;
 
-    PEEL_PROPERTY(bool, is_authorized, "is-authorized")
     PEEL_SIGNAL_CONNECT_METHOD(new_messages, sig_new_messages)
 private:
-    template<typename F>
-    static void define_properties(F& f)
-    {
-        f.prop(prop_is_authorized(), false)
-         .get(&ChatClient::get_is_authorized);
-    }
     // TODO: find way to pass std::ArrayRef<const ChatMessage> as a parameter
     static peel::Signal<ChatClient, void(void*)> sig_new_messages;
 

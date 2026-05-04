@@ -21,8 +21,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/Soup/Logger.h>
 #include <peel/Soup/LoggerLogLevel.h>
 #include <peel/Soup/MemoryUse.h>
-#include <peel/Soup/Server.h>
-#include <peel/Soup/ServerMessage.h>
 #include <peel/Soup/Status.h>
 #include <peel/UniquePtr.h>
 #include <peel/Gio/File.h>
@@ -34,6 +32,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/GLib/UriParamsFlags.h>
 #include "task.hpp"
 #include "youtube_chat_parser.hpp"
+#include "one_shot_server.hpp"
 
 G_DEFINE_QUARK(youtube-chat-error-quark, youtube_chat_error)
 
@@ -50,7 +49,7 @@ namespace youtube {
 using ErrorPtr = peel::UniquePtr<glib::Error>;
 
 static
-void set_server_error_response(soup::ServerMessage* msg, soup::Status status, const char* error_str);
+char* build_server_error_response(const char* error_str);
 
 static
 peel::String extract_video_id(const char* stream_url, ErrorPtr*);
@@ -62,16 +61,14 @@ PEEL_CLASS_IMPL(ChatClient, "YoutubeChatClient", gobject::Object)
 
 struct ChatClient::Impl {
     void call_error_callback(glib::Error*);
-    // OAuth functions
-    Task<void> handle_auth_response(peel::UniquePtr<rest::PkceCodeChallenge> pkce, peel::String state_str,
-                                    soup::ServerMessage* msg, glib::HashTable* query);
     // Operations
     Task<StreamInfo> get_live_stream_info_async(peel::String video_id, gio::Cancellable*);
     Task<void> fetch_messages_async(peel::String next_page_token, guint poll_interval);
 
     ChatClient* client;
     peel::RefPtr<rest::OAuth2Proxy> proxy;
-    peel::RefPtr<soup::Server> auth_response_listener;
+    peel::UniquePtr<rest::PkceCodeChallenge> pkce;
+    peel::String state_str;
     ErrorCallback error_callback;
     StreamInfo stream_info;
     bool is_authorized;
@@ -138,18 +135,18 @@ void ChatClient::set_error_callback(ErrorCallback&& callback)
     m_impl->error_callback = std::move(callback);
 }
 
-peel::String ChatClient::generate_auth_url_async(ErrorPtr* error)
+peel::String ChatClient::generate_auth_url(ErrorPtr* error)
 {
-    if(m_impl->auth_response_listener) {
+    if(m_impl->pkce || m_impl->state_str) {
         *error = glib::Error::create(YOUTUBE_CHAT_ERROR, 1, "Already have an in-progress OAuth flow");
         return {};
     }
     // Generate a PKCE challenge (i.e. a hashed random string). Server will use this value to
     // validate that the same client is sending all OAuth requests.
-    auto pkce = rest::PkceCodeChallenge::create_random();
+    m_impl->pkce = rest::PkceCodeChallenge::create_random();
     // State string serves as a way to tag this request so that later we can be reasonably sure the server
     // is sending a reply to this request specifically
-    auto state_str = get_random_string(error);
+    m_impl->state_str = get_random_string(error);
     if(*error) {
         return {};
     }
@@ -157,93 +154,7 @@ peel::String ChatClient::generate_auth_url_async(ErrorPtr* error)
     // Once they have done so, they will get redirected to LOOPBACK_REDIRECT_URL. We
     // will be listening on REDIRECT_PORT and will continue the authorization flow from
     // there.
-    auto auth_url = m_impl->proxy->build_authorization_url(pkce->get_challenge(), YOUTUBE_API_SCOPE, &state_str);
-    auto auth_response_listener = peel::RefPtr<soup::Server>::adopt_ref(reinterpret_cast<soup::Server*>(
-        soup_server_new("server-header", "PurpleYoutube", nullptr)));
-
-    // TODO: timeout for server?
-    auth_response_listener->add_handler("/",
-        [impl = m_impl.get(), pkce = std::move(pkce), state_str = std::move(state_str)]
-        (soup::Server* server, soup::ServerMessage* msg, const char* path, glib::HashTable* query) mutable {
-            impl->handle_auth_response(std::move(pkce), std::move(state_str), msg, query).start();
-    });
-    auto cleanup_server = [this](soup::Server*, soup::ServerMessage*) {
-        // Unref the server (it is no longer needed once the request is finished)
-        m_impl->auth_response_listener = {};
-    };
-    auth_response_listener->connect_request_finished(cleanup_server);
-    auth_response_listener->connect_request_aborted(cleanup_server);
-    auth_response_listener->listen_local(REDIRECT_PORT, (soup::ServerListenOptions)SOUP_SERVER_LISTEN_IPV4_ONLY, error);
-    if(*error) {
-        return {};
-    }
-    m_impl->auth_response_listener = std::move(auth_response_listener);
-    return auth_url;
-}
-
-Task<void> ChatClient::Impl::handle_auth_response(peel::UniquePtr<rest::PkceCodeChallenge> pkce, peel::String state_str,
-                                                  soup::ServerMessage* msg, glib::HashTable* query)
-{
-    static const uint8_t success_response[] =
-        "<!DOCTYPE html>"
-        "<html lang=\"en\">"
-          "<head>"
-            "<title>Purple-Youtube - Authorization Successful</title>"
-          "</head>"
-          "<body>"
-            "<p>Successfully authorized Purple-Youtube! You now can close this tab.</p>"
-          "</body>"
-        "</html>";
-
-    ErrorPtr error;
-    auto* error_str = (const char*)glib::HashTable::lookup(query, "error");
-    if(error_str) {
-        error = glib::Error::create(YOUTUBE_CHAT_ERROR, 1, "OAuth redirect error: %s", error_str);
-        this->call_error_callback(error);
-        set_server_error_response(msg, soup::Status::FORBIDDEN, error->message);
-        co_return error;
-    }
-    auto* auth_code = (const char*)glib::HashTable::lookup(query, "code");
-    if(!auth_code) {
-        error = glib::Error::create(YOUTUBE_CHAT_ERROR, 1, "OAuth redirect error: Missing auth code");
-        this->call_error_callback(error);
-        set_server_error_response(msg, soup::Status::BAD_REQUEST, error->message);
-        co_return error;
-    }
-    auto* received_state_str = (const char*)glib::HashTable::lookup(query, "state");
-    if(!received_state_str || strcmp(received_state_str, state_str) != 0) {
-        error = glib::Error::create(YOUTUBE_CHAT_ERROR, 1, "OAuth redirect error: Missing state string");
-        this->call_error_callback(error);
-        set_server_error_response(msg, soup::Status::BAD_REQUEST, error->message);
-        co_return error;
-    }
-    msg->pause();
-    this->auth_response_listener->remove_handler("/");
-
-    AsyncResult result;
-    this->proxy->fetch_access_token_async(auth_code, pkce->get_verifier(), nullptr, result.callback());
-    this->proxy->fetch_access_token_finish(co_await result, &error);
-
-    if(error) {
-        this->call_error_callback(error);
-        // TODO: map GError to HTTP error code
-        set_server_error_response(msg, soup::Status::FORBIDDEN, error->message);
-    } else {
-        // From this point forwards, OAuth2Proxy will add the access token as an
-        // 'Authorization: Bearer <access_token>' header to each request
-        this->is_authorized = true;
-        // TODO: set to false if token refresh operation fails
-        client->notify(client->prop_is_authorized());
-        // Send the user's web browser a message letting them know authorization was successful
-        msg->set_status((unsigned int)soup::Status::OK, nullptr);
-        msg->set_response("text/html", soup::MemoryUse::STATIC, success_response);
-        // TODO: schedule next refresh token update
-        // TODO: how to ensure requests do not use expired access tokens
-        // TODO: seems like librest is treating some error responses as success. If we send an empty client
-        //  secret, everything appears to succeed but the Bearer token is '(null)', causing API calls to fail
-    }
-    msg->unpause();
-    co_return error;
+    return m_impl->proxy->build_authorization_url(m_impl->pkce->get_challenge(), YOUTUBE_API_SCOPE, &m_impl->state_str);
 }
 
 Task<StreamInfo> ChatClient::Impl::get_live_stream_info_async(peel::String video_id, gio::Cancellable* cancellable)
@@ -279,25 +190,92 @@ Task<StreamInfo> ChatClient::Impl::get_live_stream_info_async(peel::String video
 
 Task<void> ChatClient::connect_to_chat_async(const char* stream_url, gio::Cancellable* cancellable)
 {
+    static const uint8_t success_response[] =
+        "<!DOCTYPE html>"
+        "<html lang=\"en\">"
+          "<head>"
+            "<title>Purple-Youtube - Authorization Successful</title>"
+          "</head>"
+          "<body>"
+            "<p>Successfully authorized Purple-Youtube! You now can close this tab.</p>"
+          "</body>"
+        "</html>";
+
     ErrorPtr error;
 
-    if(!m_impl->is_authorized) {
-        error = glib::Error::create(YOUTUBE_CHAT_ERROR, 1, "Client is not authorized to make API calls");
+    // TODO: if we are already authorized, bypass the OAuth flow and these checks
+    if(!m_impl->pkce || !m_impl->state_str) {
+        error = glib::Error::create(YOUTUBE_CHAT_ERROR, 1, "No OAuth flow in-progress - call generate_auth_url first");
         co_return error;
     }
+
+    // First, get the server's response and determine if we are authorized
+    auto auth_listener = OneShotServer::create();
+    auto auth_response = co_await auth_listener->listen(REDIRECT_PORT);
+    if(auto* error = std::get_if<ErrorPtr>(&auth_response)) {
+        m_impl->pkce = {};
+        m_impl->state_str = {};
+        co_return std::move(*error);
+    }
+    auto query = std::move(std::get<peel::RefPtr<glib::HashTable>>(auth_response));
+    auto* error_str = (const char*)glib::HashTable::lookup(query, "error");
+    if(error_str) {
+        error = glib::Error::create(YOUTUBE_CHAT_ERROR, 1, "OAuth redirect error: %s", error_str);
+        auth_listener->respond(soup::Status::FORBIDDEN, build_server_error_response(error->message));
+        m_impl->pkce = {};
+        m_impl->state_str = {};
+        co_return error;
+    }
+    auto* auth_code = (const char*)glib::HashTable::lookup(query, "code");
+    if(!auth_code) {
+        error = glib::Error::create(YOUTUBE_CHAT_ERROR, 1, "OAuth redirect error: Missing auth code");
+        auth_listener->respond(soup::Status::FORBIDDEN, build_server_error_response(error->message));
+        m_impl->pkce = {};
+        m_impl->state_str = {};
+        co_return error;
+    }
+    auto* received_state_str = (const char*)glib::HashTable::lookup(query, "state");
+    auto expected_state_str = std::move(m_impl->state_str);
+    if(!received_state_str || strcmp(received_state_str, expected_state_str) != 0) {
+        error = glib::Error::create(YOUTUBE_CHAT_ERROR, 1, "OAuth redirect error: Missing state string");
+        auth_listener->respond(soup::Status::FORBIDDEN, build_server_error_response(error->message));
+        m_impl->pkce = {};
+        co_return error;
+    }
+
+    // Attempt to get the access token using the authorization code provided by the server
+    AsyncResult result;
+    m_impl->proxy->fetch_access_token_async(auth_code, m_impl->pkce->get_verifier(), nullptr, result.callback());
+    m_impl->proxy->fetch_access_token_finish(co_await result, &error);
+    m_impl->pkce = {};
+    if(error) {
+        // TODO: map GError to HTTP error code
+        auth_listener->respond(soup::Status::FORBIDDEN, build_server_error_response(error->message));
+        co_return error;
+    }
+
+    // From this point forwards, OAuth2Proxy will add the access token as an
+    // 'Authorization: Bearer <access_token>' header to each request
+    m_impl->is_authorized = true;
+    // Send the user's web browser a message letting them know authorization was successful
+    auth_listener->respond(soup::Status::OK, soup::MemoryUse::STATIC, success_response);
+    // TODO: schedule next refresh token update
+    // TODO: how to ensure requests do not use expired access tokens
+    // TODO: seems like librest is treating some error responses as success. If we send an empty client
+    //  secret, everything appears to succeed but the Bearer token is '(null)', causing API calls to fail
+
     auto video_id = extract_video_id(stream_url, &error);
     if(error) {
         co_return error;
     }
     auto live_stream_info = co_await m_impl->get_live_stream_info_async(std::move(video_id), cancellable);
-    g_message("In connect_to_chat_async()");
-    if(auto* error = std::get_if<ErrorPtr>(&live_stream_info)) {
-        co_return std::move(*error);
+    if(auto* error2 = std::get_if<ErrorPtr>(&live_stream_info)) {
+        co_return std::move(*error2);
     }
     // Cache stream info
     m_impl->stream_info = std::move(std::get<StreamInfo>(live_stream_info));
     assert(m_impl->stream_info.live_chat_id);
-    co_await m_impl->fetch_messages_async(nullptr, 5000); // 5000 = Default poll interval
+    m_impl->fetch_messages_async(nullptr, 5000).start(); // 5000 = Default poll interval
 
     co_return error;
 }
@@ -318,6 +296,7 @@ Task<void> ChatClient::Impl::fetch_messages_async(peel::String next_page_token, 
 
     ErrorPtr error;
     AsyncResult result;
+    g_print("Poll interval: %u\n", poll_interval);
     call->invoke_async(nullptr, result.callback());
     call->invoke_finish(co_await result, &error);
     if(error) {
@@ -355,7 +334,7 @@ void ChatClient::Impl::call_error_callback(glib::Error* error)
 }
 
 static
-void set_server_error_response(soup::ServerMessage* msg, soup::Status status, const char* error_str)
+char* build_server_error_response(const char* error_str)
 {
     static const char error_response[] =
         "<!DOCTYPE html>"
@@ -369,9 +348,7 @@ void set_server_error_response(soup::ServerMessage* msg, soup::Status status, co
           "</body>"
         "</html>";
 
-    msg->set_status((unsigned int)status, nullptr);
-    char* content = g_strdup_printf(error_response, error_str);
-    msg->set_response("text/html", soup::MemoryUse::TAKE, {(uint8_t*)content, strlen(content)});
+    return g_strdup_printf(error_response, error_str);
 }
 
 static
