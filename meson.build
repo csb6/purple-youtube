@@ -11,6 +11,8 @@ libsoup = dependency('libsoup-3.0', required: true)
 json = dependency('json-glib-1.0', required: true)
 librest = dependency('rest-1.0', required: true)
 gio = dependency('gio-2.0', required: true)
+purple = dependency('purple-3', required: true)
+gplugin = dependency('gplugin', required: true)
 peel = dependency('peel', required: true)
 
 peel_gen = find_program('peel-gen')
@@ -22,6 +24,7 @@ custom_target('peel-codegen',
     '--api-tweaks', '@SOURCE_ROOT@/src/api-tweaks.txt',
     'Rest', '1.0',
     'Json', '1.0',
+    'Purple', '3.0',
   ],
   input: 'src/api-tweaks.txt',
   output: 'peel-codegen',
@@ -30,13 +33,15 @@ custom_target('peel-codegen',
   },
 )
 
-purple_youtube = library('purple-youtube', [
+purple_youtube = shared_library('purple-youtube', [
+    'src/youtube_chat_plugin.cpp',
+    'src/youtube_chat_connection.cpp',
     'src/youtube_chat_client.cpp',
     'src/youtube_chat_parser.cpp',
     'src/one_shot_server.cpp',
   ],
   cpp_pch: 'src/pch/pch.hpp',
-  dependencies: [gobject, libsoup, json, librest, gio, peel],
+  dependencies: [gobject, libsoup, json, librest, gio, peel, purple, gplugin],
 )
 
 executable('yt-chat', ['src/main.cpp'],

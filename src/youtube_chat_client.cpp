@@ -99,7 +99,6 @@ void ChatClient::init(Class*)
     auto logger = soup::Logger::create(soup::Logger::LogLevel::BODY);
     m_impl->proxy->add_soup_feature(logger);
     #endif
-    new (&m_impl->error_callback) ErrorCallback{};
 }
 
 peel::RefPtr<ChatClient> ChatClient::create(const char* client_id, const char* client_secret)
