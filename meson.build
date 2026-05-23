@@ -35,6 +35,7 @@ purple_youtube = library('purple-youtube', [
     'src/youtube_chat_parser.cpp',
     'src/one_shot_server.cpp',
   ],
+  cpp_pch: 'src/pch/pch.hpp',
   dependencies: [gobject, libsoup, json, librest, gio, peel],
 )
 
