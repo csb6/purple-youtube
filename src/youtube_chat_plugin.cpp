@@ -160,4 +160,7 @@ gboolean youtube_chat_unload(GPluginPlugin*, gboolean, GError** error)
     return true;
 }
 
+// Ensure the exported functions are not mangled
+extern "C" {
 GPLUGIN_NATIVE_PLUGIN_DECLARE(youtube_chat)
+}
