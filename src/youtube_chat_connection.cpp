@@ -29,7 +29,6 @@ namespace youtube {
 PEEL_CLASS_IMPL(Connection, "YoutubeConnection", purple::Connection)
 
 struct Connection::Impl {
-    peel::RefPtr<purple::Account> account;
     peel::RefPtr<ChatClient> client;
 };
 
@@ -46,8 +45,7 @@ void Connection::init(Class*)
 peel::RefPtr<Connection> Connection::create(peel::RefPtr<purple::Account> account,
                                             peel::UniquePtr<glib::Error>* error)
 {
-    auto connection = Object::create<Connection>();
-    connection->m_impl->account = std::move(account);
+    auto connection = Object::create<Connection>(prop_account(), std::move(account));
 
     // TODO: not sure if env variable is right way to include client ID/secrets
     std::unique_ptr<char*, decltype(&g_strfreev)> env{g_get_environ(), &g_strfreev};
@@ -62,7 +60,7 @@ peel::RefPtr<Connection> Connection::create(peel::RefPtr<purple::Account> accoun
         return {};
     }
 
-    auto* settings = connection->m_impl->account->get_settings();
+    auto* settings = connection->get_account()->get_settings();
     const char* access_token = settings->get_string("access_token", "");
     const char* refresh_token = settings->get_string("refresh_token", "");
     const char* access_token_expiration_str = settings->get_string("access_token_expiration", "");
@@ -99,7 +97,7 @@ bool Connection::vfunc_connect(peel::UniquePtr<glib::Error>*)
             peel::UniquePtr<glib::Error> error;
             auto url = m_impl->client->generate_auth_url();
             if(!url.has_value()) {
-                m_impl->account->disconnect_with_error(nullptr, error);
+                this->get_account()->disconnect_with_error(nullptr, error);
                 co_return {};
             }
             // Open URL in user's browser so that they can begin the OAuth flow
@@ -108,17 +106,17 @@ bool Connection::vfunc_connect(peel::UniquePtr<glib::Error>*)
             ui->open_uri(url->c_str(), nullptr, result.callback());
             ui->open_uri_finish(co_await result, &error);
             if(error) {
-                m_impl->account->disconnect_with_error(nullptr, error);
+                this->get_account()->disconnect_with_error(nullptr, error);
                 co_return {};
             }
         }
 
         // Connect to the YouTube stream
-        auto* settings = m_impl->account->get_settings();
+        auto* settings = this->get_account()->get_settings();
         const char* stream_url = settings->get_string("stream_url", "");
         auto error = co_await m_impl->client->connect_to_chat_async(stream_url, nullptr);
         if(error) {
-            m_impl->account->disconnect_with_error(nullptr, error.get());
+            this->get_account()->disconnect_with_error(nullptr, error.get());
         }
         co_return {};
     };
