@@ -52,6 +52,7 @@ public:
     }
 
     void init(Class*) {}
+
     static peel::RefPtr<Protocol> create()
     {
         auto protocol = Object::create<Protocol>(
@@ -102,7 +103,7 @@ GPluginPluginInfo* youtube_chat_query(GError**)
               | PURPLE_PLUGIN_INFO_FLAGS_AUTO_LOAD;
     static const char * const authors[] = {
         "Cole Blakley",
-        NULL
+        nullptr
     };
 
     return purple_plugin_info_new(
@@ -116,13 +117,13 @@ GPluginPluginInfo* youtube_chat_query(GError**)
         "website", "https://github.com/csb6/purple-youtube",
         "abi-version", PURPLE_ABI_VERSION,
         "flags", flags,
-        NULL);
+        nullptr);
 }
 
 static
 gboolean youtube_chat_load(GPluginPlugin*, GError** error)
 {
-    if(!youtube_chat_protocol) {
+    if(youtube_chat_protocol) {
         g_set_error_literal(error, YOUTUBE_CHAT_ERROR, 1, "Plugin was not cleaned up properly");
         return false;
     }
@@ -144,7 +145,7 @@ static
 gboolean youtube_chat_unload(GPluginPlugin*, gboolean, GError** error)
 {
     if(!youtube_chat_protocol) {
-        g_set_error_literal(error, YOUTUBE_CHAT_ERROR, 1, "Plugin was not cleaned up properly");
+        g_set_error_literal(error, YOUTUBE_CHAT_ERROR, 1, "Plugin was not setup properly");
         return false;
     }
 
