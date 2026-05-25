@@ -98,6 +98,11 @@ std::expected<ResponseInfo, ErrorPtr> parse_chat_messages(peel::ArrayRef<const c
 static
 void parse_text_message(json::Node* item, std::vector<ChatMessage>& messages)
 {
+    // Get commenter's channel ID
+    auto channel_id = match_json_string(item, "$.authorDetails.channelId");
+    if(!channel_id) {
+        return;
+    }
     // Get commenter's display name
     auto display_name = match_json_string(item, "$.authorDetails.displayName");
     if(!display_name) {
@@ -112,7 +117,7 @@ void parse_text_message(json::Node* item, std::vector<ChatMessage>& messages)
     if(!content) {
         return;
     }
-    messages.emplace_back(std::move(display_name), std::move(timestamp), std::move(content));
+    messages.emplace_back(std::move(channel_id), std::move(display_name), std::move(timestamp), std::move(content));
 }
 
 static

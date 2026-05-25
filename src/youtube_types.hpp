@@ -32,6 +32,7 @@ struct StreamInfo {
 };
 
 struct ChatMessage {
+    peel::String channel_id;
     peel::String display_name;
     peel::RefPtr<glib::DateTime> timestamp;
     peel::String content;
