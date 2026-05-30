@@ -303,6 +303,11 @@ Task<void> ChatClient::Impl::refresh_access_token_async()
         g_assert(!this->is_access_expired());
         schedule_access_token_refresh().start();
     }
+    g_message("Refreshed access token\n");
+    g_message("Access token: %s\n", this->proxy->get_access_token());
+    g_message("Refresh token: %s\n", this->proxy->get_refresh_token());
+    auto expiration = this->proxy->get_expiration_date();
+    g_message("Token expiration: %s\n", expiration->format_iso8601().c_str());
     co_return error;
 }
 
