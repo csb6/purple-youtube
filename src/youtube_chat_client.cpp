@@ -309,10 +309,12 @@ Task<void> ChatClient::Impl::refresh_access_token_async()
     peel::UniquePtr<glib::Error> error;
     this->proxy->refresh_access_token_async(nullptr, result.callback());
     this->proxy->refresh_access_token_finish(co_await result, &error);
-    if(!error) {
-        g_assert(!this->is_access_expired());
-        schedule_access_token_refresh().start();
+    if(error) {
+        co_return error;
     }
+    g_assert(!this->is_access_expired());
+    schedule_access_token_refresh().start();
+
     g_message("Refreshed access token\n");
     g_message("Access token: %s\n", this->proxy->get_access_token());
     g_message("Refresh token: %s\n", this->proxy->get_refresh_token());
