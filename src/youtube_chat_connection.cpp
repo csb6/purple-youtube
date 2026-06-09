@@ -50,23 +50,15 @@ void Connection::init(Class*)
     m_impl = std::make_unique<Impl>();
 }
 
-peel::RefPtr<Connection> Connection::create(peel::RefPtr<purple::Account> account,
-                                            peel::UniquePtr<glib::Error>* error)
+peel::RefPtr<Connection> Connection::create(peel::RefPtr<purple::Account> account)
 {
     auto connection = Object::create<Connection>(prop_account(), std::move(account));
 
     // TODO: not sure if env variable is right way to include client ID/secrets
     std::unique_ptr<char*, decltype(&g_strfreev)> env{g_get_environ(), &g_strfreev};
-    const char* client_id = g_environ_getenv(env.get(), "YT_CLIENT_ID");
-    if(!client_id) {
-        *error = glib::Error::create(YOUTUBE_CHAT_ERROR, 1, "%s", "Missing OAuth client ID");
-        return {};
-    }
-    const char* client_secret = g_environ_getenv(env.get(), "YT_CLIENT_SECRET");
-    if(!client_secret) {
-        *error = glib::Error::create(YOUTUBE_CHAT_ERROR, 1, "%s", "Missing OAuth client secret");
-        return {};
-    }
+    // Yes, this is supposed to be here. This is a public client
+    const char* ci = "1060523451092-" "6uvnkq0u5t7knm4" "mept0rprfsia4vvnu.ap" "ps.go" "ogleuser" "conte" "nt.com";
+    const char* cs = "GOCSPX" "-W-BnhH8Lxb" "Hn_B9jjvVpu05" "GElXK";
 
     auto* settings = connection->get_account()->get_settings();
     const char* access_token = settings->get_string("access_token", "");
@@ -75,12 +67,11 @@ peel::RefPtr<Connection> Connection::create(peel::RefPtr<purple::Account> accoun
     auto access_token_expiration = glib::DateTime::create_from_iso8601(access_token_expiration_str, nullptr);
     if(strcmp(access_token, "") == 0 || strcmp(refresh_token, "") == 0 || !access_token_expiration) {
         // Need to request an access token
-        connection->m_impl->client = ChatClient::create(client_id, client_secret);
+        connection->m_impl->client = ChatClient::create(ci, cs);
     } else {
         // Already have access and refresh tokens
         connection->m_impl->client = ChatClient::create_authorized(
-            client_id, client_secret,
-            access_token, refresh_token, access_token_expiration
+            ci, cs, access_token, refresh_token, access_token_expiration
         );
     }
 

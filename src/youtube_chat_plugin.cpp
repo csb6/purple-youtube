@@ -112,10 +112,9 @@ public:
         return protocol;
     }
 
-    peel::RefPtr<purple::Connection> vfunc_create_connection(purple::Account* account,
-                                                             peel::UniquePtr<glib::Error>* error)
+    peel::RefPtr<purple::Connection> vfunc_create_connection(purple::Account* account, peel::UniquePtr<glib::Error>*)
     {
-        return youtube::Connection::create(account, error);
+        return youtube::Connection::create(account);
     }
 
     peel::RefPtr<purple::ChannelJoinDetails> vfunc_get_channel_join_details(purple::Account*)

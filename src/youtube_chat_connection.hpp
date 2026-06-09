@@ -34,7 +34,7 @@ class Connection final : public purple::Connection {
     PEEL_SIMPLE_CLASS(Connection, purple::Connection)
 public:
     void init(Class*);
-    static peel::RefPtr<Connection> create(peel::RefPtr<purple::Account>, peel::UniquePtr<glib::Error>*);
+    static peel::RefPtr<Connection> create(peel::RefPtr<purple::Account>);
 
     bool vfunc_connect(peel::UniquePtr<glib::Error>*);
     Task<void> connect_async();
