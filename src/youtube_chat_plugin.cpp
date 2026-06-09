@@ -26,6 +26,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "peel/Purple/ConversationType.h"
 #include <peel/Purple/Core.h>
 #include <peel/Purple/ChannelJoinDetails.h>
+#include <peel/Purple/Message.h>
 #include <peel/Purple/Protocol.h>
 #include <peel/Purple/ProtocolManager.h>
 #include <peel/Purple/ProtocolConversation.h>
@@ -46,7 +47,6 @@ public:
     static void init_interface(purple::ProtocolConversation::Iface* iface)
     {
         iface->override_vfunc_get_channel_join_details<Protocol>();
-        iface->override_vfunc_refresh<Protocol>();
         // TODO: unsupported currently in peel. Overriding manually for now
         auto* iface_class = reinterpret_cast<PurpleProtocolConversationInterface*>(iface);
         iface_class->join_channel_async =
@@ -61,11 +61,11 @@ public:
                    purple::Account* account, purple::ChannelJoinDetails* details,
                    gio::Cancellable* cancellable, gio::Task* task) -> VoidTask {
                         auto conversation = co_await self->vfunc_join_channel_async(account, details, cancellable);
-                        if(!conversation.has_value()) {
+                        if(conversation.has_value()) {
+                            task->return_pointer(std::move(conversation.value()).release_ref(), g_object_unref);
+                        } else {
                             task->return_error(conversation.error()->copy());
-                            co_return;
                         }
-                        task->return_pointer(std::move(conversation.value()).release_ref(), g_object_unref);
                 }(self, _peel_account, _peel_details, _peel_cancellable, task).start();
             };
         iface_class->join_channel_finish =
@@ -74,8 +74,28 @@ public:
             };
         //iface->override_vfunc_leave_conversation_async<Protocol>();
         //iface->override_vfunc_leave_conversation_finish<Protocol>();
-        //iface->override_vfunc_send_message_async<Protocol>();
-        //iface->override_vfunc_send_message_finish<Protocol>();
+        iface_class->send_message_async =
+            [](PurpleProtocolConversation* protocol, PurpleConversation* conversation, PurpleMessage* message,
+               GCancellable* cancellable, GAsyncReadyCallback callback, gpointer data) {
+                auto* self = reinterpret_cast<youtube::Protocol*>(protocol);
+                auto* task = reinterpret_cast<gio::Task*>(g_task_new(protocol, cancellable, callback, data));
+                auto* _peel_conversation = reinterpret_cast<purple::Conversation*>(conversation);
+                auto* _peel_message = reinterpret_cast<purple::Message*>(message);
+                auto* _peel_cancellable = reinterpret_cast<gio::Cancellable*>(cancellable);
+                [](youtube::Protocol* self, purple::Conversation* conversation, purple::Message* message,
+                   gio::Cancellable* cancellable, gio::Task* task) -> VoidTask {
+                    auto error = co_await self->vfunc_send_message_async(conversation, message, cancellable);
+                    if(error) {
+                        task->return_error(error->copy());
+                    } else {
+                        task->return_boolean(true);
+                    }
+                }(self, _peel_conversation, _peel_message, _peel_cancellable, task).start();
+            };
+        iface_class->send_message_finish =
+            [](PurpleProtocolConversation*, GAsyncResult* result, GError** error) {
+                return g_task_propagate_boolean(G_TASK(result), error);
+            };
     }
 
     void init(Class*) {}
@@ -131,9 +151,13 @@ public:
         co_return conversation;
     }
 
-    void vfunc_refresh(purple::Conversation*)
+    Task<void> vfunc_send_message_async(purple::Conversation* conversation, purple::Message* message,
+                                        gio::Cancellable*)
     {
-
+        auto* connection = static_cast<youtube::Connection*>(conversation->get_connection());
+        // TODO: eventually need to stringify the message contents better
+        auto error = co_await connection->send_message_async(message->get_contents());
+        co_return error;
     }
 };
 

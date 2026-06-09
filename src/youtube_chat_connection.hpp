@@ -38,6 +38,7 @@ public:
 
     bool vfunc_connect(peel::UniquePtr<glib::Error>*);
     Task<void> connect_async();
+    Task<void> send_message_async(const char* message);
 
     peel::String get_channel_id();
     peel::String get_title();

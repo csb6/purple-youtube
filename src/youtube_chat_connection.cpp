@@ -160,6 +160,11 @@ Task<void> Connection::connect_async()
     co_return error;
 }
 
+Task<void> Connection::send_message_async(const char* message)
+{
+    return m_impl->client->send_message_async(message);
+}
+
 peel::String Connection::get_channel_id()
 {
     auto* settings = this->get_account()->get_settings();
