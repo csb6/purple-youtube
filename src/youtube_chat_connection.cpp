@@ -37,6 +37,7 @@ PEEL_CLASS_IMPL_DYNAMIC(Connection, "YoutubeConnection", purple::Connection)
 
 struct Connection::Impl {
     peel::RefPtr<ChatClient> client;
+    peel::SignalConnection::Token connect_new_messages_token;
 };
 
 void Connection::Class::init()
@@ -78,7 +79,8 @@ peel::RefPtr<Connection> Connection::create(peel::RefPtr<purple::Account> accoun
         // TODO: is there a better way to log errors?
         g_printerr("Error: %s\n", error->message);
     });
-    client->connect_new_messages([connection](youtube::ChatClient*, void* data) {
+    connection->m_impl->connect_new_messages_token = client->connect_new_messages(
+            [connection](youtube::ChatClient*, void* data) {
         auto* account = connection->get_account();
         auto* core = purple::Core::get_default();
         auto* contact_manager = core->get_contact_manager();
@@ -120,11 +122,12 @@ bool Connection::vfunc_connect(peel::UniquePtr<glib::Error>*)
 Task<void> Connection::connect_async()
 {
     // Authorize client if needed
+    auto* account = this->get_account();
     if(!m_impl->client->is_authorized()) {
         peel::UniquePtr<glib::Error> error;
         auto url = m_impl->client->generate_auth_url();
         if(!url.has_value()) {
-            this->get_account()->disconnect_with_error("Failed to generate OAuth URL", error);
+            account->disconnect_with_error("Failed to generate OAuth URL", error);
             co_return error;
         }
         // Open URL in user's browser so that they can begin the OAuth flow
@@ -133,23 +136,23 @@ Task<void> Connection::connect_async()
         ui->open_uri(url->c_str(), nullptr, result.callback());
         ui->open_uri_finish(co_await result, &error);
         if(error) {
-            this->get_account()->disconnect_with_error("Failed to open OAuth URL in browser", error);
+            account->disconnect_with_error("Failed to open OAuth URL in browser", error);
             co_return error;
         }
         // Perform the authorization
         auto error_ptr = co_await m_impl->client->authorize();
         if(error_ptr) {
-            this->get_account()->disconnect_with_error("Authorization failed", error);
+            account->disconnect_with_error("Authorization failed", error_ptr.get());
             co_return error_ptr;
         }
     }
 
     // Connect to the YouTube stream
-    auto* settings = this->get_account()->get_settings();
+    auto* settings = account->get_settings();
     const char* stream_url = settings->get_string("stream_url", "");
     auto error = co_await m_impl->client->connect_to_chat_async(stream_url, nullptr);
     if(error) {
-        this->get_account()->disconnect_with_error("Failed to connect to live chat", error.get());
+        account->disconnect_with_error("Failed to connect to live chat", error.get());
     }
     co_return error;
 }

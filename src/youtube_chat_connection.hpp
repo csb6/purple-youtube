@@ -21,7 +21,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/class.h>
 #include <peel/String.h>
 #include <peel/RefPtr.h>
-#include <peel/UniquePtr.h>
 #include <peel/GLib/Error.h>
 #include <peel/Purple/Connection.h>
 #include <peel/Purple/Account.h>
