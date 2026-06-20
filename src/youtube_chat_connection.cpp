@@ -34,7 +34,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 namespace youtube {
 
-PEEL_CLASS_IMPL(Connection, "YoutubeConnection", purple::Connection)
+PEEL_CLASS_IMPL_DYNAMIC(Connection, "YoutubeConnection", purple::Connection)
 
 struct Connection::Impl {
     peel::RefPtr<ChatClient> client;

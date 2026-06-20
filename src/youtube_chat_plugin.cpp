@@ -37,7 +37,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 namespace youtube {
 
 class Protocol final : public purple::Protocol {
-    PEEL_SIMPLE_CLASS(Protocol, purple::Protocol)
+    PEEL_DYNAMIC_CLASS(Protocol, purple::Protocol)
 public:
     static void init_type(peel::Type type)
     {
@@ -160,7 +160,7 @@ public:
     }
 };
 
-PEEL_CLASS_IMPL(Protocol, "YoutubeProtocol", purple::Protocol)
+PEEL_CLASS_IMPL_DYNAMIC(Protocol, "YoutubeProtocol", purple::Protocol)
 
 void Protocol::Class::init()
 {
@@ -196,14 +196,18 @@ GPluginPluginInfo* youtube_chat_query(GError**)
 }
 
 static
-gboolean youtube_chat_load(GPluginPlugin*, GError** error)
+gboolean youtube_chat_load(GPluginPlugin* plugin, GError** error)
 {
     if(youtube_chat_protocol) {
         g_set_error_literal(error, YOUTUBE_CHAT_ERROR, 1, "Plugin was not cleaned up properly");
         return false;
     }
 
+    youtube::Connection::register_dynamic_type(G_TYPE_MODULE(plugin));
+    youtube::Protocol::register_dynamic_type(G_TYPE_MODULE(plugin));
+
     auto* manager = purple::Core::get_default()->get_protocol_manager();
+    youtube_chat_protocol = youtube::Protocol::create();
     if(manager) {
         peel::UniquePtr<glib::Error> error2;
         if(!manager->add(youtube_chat_protocol, &error2)) {

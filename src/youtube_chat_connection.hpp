@@ -31,7 +31,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 namespace youtube {
 
 class Connection final : public purple::Connection {
-    PEEL_SIMPLE_CLASS(Connection, purple::Connection)
+    PEEL_DYNAMIC_CLASS(Connection, purple::Connection)
 public:
     void init(Class*);
     static peel::RefPtr<Connection> create(peel::RefPtr<purple::Account>);
