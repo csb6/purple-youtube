@@ -166,7 +166,7 @@ peel::RefPtr<ChatClient> ChatClient::create_authorized(const char* client_id, co
     return client;
 }
 
-bool ChatClient::get_is_authorized() const
+bool ChatClient::is_authorized() const
 {
     return m_impl->is_authorized;
 }

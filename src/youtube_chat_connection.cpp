@@ -120,11 +120,11 @@ bool Connection::vfunc_connect(peel::UniquePtr<glib::Error>*)
 Task<void> Connection::connect_async()
 {
     // Authorize client if needed
-    if(!m_impl->client->get_is_authorized()) {
+    if(!m_impl->client->is_authorized()) {
         peel::UniquePtr<glib::Error> error;
         auto url = m_impl->client->generate_auth_url();
         if(!url.has_value()) {
-            this->get_account()->disconnect_with_error(nullptr, error);
+            this->get_account()->disconnect_with_error("Failed to generate OAuth URL", error);
             co_return error;
         }
         // Open URL in user's browser so that they can begin the OAuth flow
@@ -133,7 +133,7 @@ Task<void> Connection::connect_async()
         ui->open_uri(url->c_str(), nullptr, result.callback());
         ui->open_uri_finish(co_await result, &error);
         if(error) {
-            this->get_account()->disconnect_with_error(nullptr, error);
+            this->get_account()->disconnect_with_error("Failed to open OAuth URL in browser", error);
             co_return error;
         }
     }
@@ -143,7 +143,7 @@ Task<void> Connection::connect_async()
     const char* stream_url = settings->get_string("stream_url", "");
     auto error = co_await m_impl->client->connect_to_chat_async(stream_url, nullptr);
     if(error) {
-        this->get_account()->disconnect_with_error(nullptr, error.get());
+        this->get_account()->disconnect_with_error("Failed to connect to live chat", error.get());
     }
     co_return error;
 }

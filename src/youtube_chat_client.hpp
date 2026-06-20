@@ -50,7 +50,7 @@ public:
     std::expected<peel::String, ErrorPtr> generate_auth_url();
     Task<void> connect_to_chat_async(const char* stream_url, gio::Cancellable* cancellable);
     Task<void> send_message_async(const char* message);
-    bool get_is_authorized() const;
+    bool is_authorized() const;
     const char* get_title() const;
 
     PEEL_SIGNAL_CONNECT_METHOD(new_messages, sig_new_messages)
