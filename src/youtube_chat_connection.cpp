@@ -30,7 +30,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/GLib/DateTime.h>
 #include "youtube_chat_client.hpp"
 #include "task.hpp"
-#include <memory>
 
 namespace youtube {
 
@@ -54,8 +53,6 @@ peel::RefPtr<Connection> Connection::create(peel::RefPtr<purple::Account> accoun
 {
     auto connection = Object::create<Connection>(prop_account(), std::move(account));
 
-    // TODO: not sure if env variable is right way to include client ID/secrets
-    std::unique_ptr<char*, decltype(&g_strfreev)> env{g_get_environ(), &g_strfreev};
     // Yes, this is supposed to be here. This is a public client
     const char* ci = "1060523451092-" "6uvnkq0u5t7knm4" "mept0rprfsia4vvnu.ap" "ps.go" "ogleuser" "conte" "nt.com";
     const char* cs = "GOCSPX" "-W-BnhH8Lxb" "Hn_B9jjvVpu05" "GElXK";
