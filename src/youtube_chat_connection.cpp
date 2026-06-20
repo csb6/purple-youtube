@@ -49,11 +49,10 @@ void Connection::Class::init()
                               GAsyncReadyCallback callback, gpointer data) {
         auto* self = reinterpret_cast<youtube::Connection*>(connection);
         auto* task = reinterpret_cast<gio::Task*>(g_task_new(connection, cancellable, callback, data));
-        auto* _peel_cancellable = reinterpret_cast<gio::Cancellable*>(cancellable);
-        [](youtube::Connection* self, gio::Cancellable* cancellable, gio::Task* task) -> VoidTask {
-            auto result = co_await self->vfunc_connect_async(cancellable);
+        [](youtube::Connection* self, gio::Task* task) -> VoidTask {
+            auto result = co_await self->vfunc_connect_async(task->get_cancellable());
             task->return_error(result->copy());
-        }(self, _peel_cancellable, task).start();
+        }(self, task).start();
     };
     klass->connect_finish = [](PurpleConnection*, GAsyncResult* result, GError** error) {
         return g_task_propagate_boolean(G_TASK(result), error);

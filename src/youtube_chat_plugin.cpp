@@ -56,17 +56,16 @@ public:
                 auto* task = reinterpret_cast<gio::Task*>(g_task_new(protocol, cancellable, callback, data));
                 auto* _peel_account = reinterpret_cast<purple::Account*>(account);
                 auto* _peel_details = reinterpret_cast<purple::ChannelJoinDetails*>(details);
-                auto* _peel_cancellable = reinterpret_cast<gio::Cancellable*>(cancellable);
-                [](youtube::Protocol* self,
-                   purple::Account* account, purple::ChannelJoinDetails* details,
-                   gio::Cancellable* cancellable, gio::Task* task) -> VoidTask {
-                        auto conversation = co_await self->vfunc_join_channel_async(account, details, cancellable);
+                [](youtube::Protocol* self, purple::Account* account, purple::ChannelJoinDetails* details,
+                   gio::Task* task) -> VoidTask {
+                        auto conversation = co_await self->vfunc_join_channel_async(
+                            account, details, task->get_cancellable());
                         if(conversation.has_value()) {
                             task->return_pointer(std::move(conversation.value()).release_ref(), g_object_unref);
                         } else {
                             task->return_error(conversation.error()->copy());
                         }
-                }(self, _peel_account, _peel_details, _peel_cancellable, task).start();
+                }(self, _peel_account, _peel_details, task).start();
             };
         iface_class->join_channel_finish =
             [](PurpleProtocolConversation*, GAsyncResult* result, GError** error) {
@@ -81,16 +80,16 @@ public:
                 auto* task = reinterpret_cast<gio::Task*>(g_task_new(protocol, cancellable, callback, data));
                 auto* _peel_conversation = reinterpret_cast<purple::Conversation*>(conversation);
                 auto* _peel_message = reinterpret_cast<purple::Message*>(message);
-                auto* _peel_cancellable = reinterpret_cast<gio::Cancellable*>(cancellable);
                 [](youtube::Protocol* self, purple::Conversation* conversation, purple::Message* message,
-                   gio::Cancellable* cancellable, gio::Task* task) -> VoidTask {
-                    auto error = co_await self->vfunc_send_message_async(conversation, message, cancellable);
+                   gio::Task* task) -> VoidTask {
+                    auto error = co_await self->vfunc_send_message_async(
+                        conversation, message, task->get_cancellable());
                     if(error) {
                         task->return_error(error->copy());
                     } else {
                         task->return_boolean(true);
                     }
-                }(self, _peel_conversation, _peel_message, _peel_cancellable, task).start();
+                }(self, _peel_conversation, _peel_message, task).start();
             };
         iface_class->send_message_finish =
             [](PurpleProtocolConversation*, GAsyncResult* result, GError** error) {
