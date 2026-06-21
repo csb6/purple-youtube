@@ -385,7 +385,7 @@ Task<StreamInfo> ChatClient::Impl::get_live_stream_info_async(peel::String video
     co_return std::move(stream_info.value());
 }
 
-Task<void> ChatClient::send_message_async(const char* message)
+Task<void> ChatClient::send_message_async(const char* message, gio::Cancellable* cancellable)
 {
     g_assert(m_impl->is_authorized);
     if(m_impl->is_access_expired()) {
@@ -401,7 +401,7 @@ Task<void> ChatClient::send_message_async(const char* message)
 
     AsyncResult result;
     peel::UniquePtr<glib::Error> error;
-    call->invoke_async(nullptr, result.callback());
+    call->invoke_async(cancellable, result.callback());
     call->invoke_finish(co_await result, &error);
     co_return error;
 }

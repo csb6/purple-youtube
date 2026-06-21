@@ -150,11 +150,11 @@ public:
     }
 
     Task<void> vfunc_send_message_async(purple::Conversation* conversation, purple::Message* message,
-                                        gio::Cancellable*)
+                                        gio::Cancellable* cancellable)
     {
         auto* connection = static_cast<youtube::Connection*>(conversation->get_connection());
         // TODO: eventually need to stringify the message contents better
-        auto error = co_await connection->send_message_async(message->get_contents());
+        auto error = co_await connection->send_message_async(message->get_contents(), cancellable);
         co_return error;
     }
 };

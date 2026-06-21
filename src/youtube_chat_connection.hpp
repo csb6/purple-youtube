@@ -37,7 +37,7 @@ public:
     static peel::RefPtr<Connection> create(peel::RefPtr<purple::Account>);
 
     Task<void> vfunc_connect_async(gio::Cancellable*);
-    Task<void> send_message_async(const char* message);
+    Task<void> send_message_async(const char* message, gio::Cancellable*);
 
     peel::String get_channel_id();
     peel::String get_title();

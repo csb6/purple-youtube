@@ -165,9 +165,9 @@ Task<void> Connection::vfunc_connect_async(gio::Cancellable* cancellable)
     co_return error;
 }
 
-Task<void> Connection::send_message_async(const char* message)
+Task<void> Connection::send_message_async(const char* message, gio::Cancellable* cancellable)
 {
-    return m_impl->client->send_message_async(message);
+    return m_impl->client->send_message_async(message, cancellable);
 }
 
 peel::String Connection::get_channel_id()
