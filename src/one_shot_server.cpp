@@ -107,7 +107,8 @@ Task<void> OneShotServer::respond(soup::Status status, soup::MemoryUse mem_use,
     co_return {};
 }
 
-Task<void> OneShotServer::respond(soup::Status status, char* content)
+Task<void> OneShotServer::respond(soup::Status status, peel::String content)
 {
-    return respond(status, soup::MemoryUse::TAKE, {(uint8_t*)content, strlen(content)});
+    char* content_str = std::move(content).release_string();
+    return respond(status, soup::MemoryUse::TAKE, {(uint8_t*)content_str, strlen(content_str)});
 }

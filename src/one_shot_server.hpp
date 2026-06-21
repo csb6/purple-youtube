@@ -41,7 +41,7 @@ public:
 
     Task<peel::RefPtr<glib::HashTable>> listen(unsigned port);
     Task<void> respond(soup::Status, soup::MemoryUse mem_use, peel::ArrayRef<const uint8_t> content);
-    Task<void> respond(soup::Status, char* content);
+    Task<void> respond(soup::Status, peel::String content);
 private:
     peel::RefPtr<soup::Server> server;
     peel::RefPtr<soup::ServerMessage> msg;

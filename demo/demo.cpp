@@ -65,9 +65,8 @@ int main(int argc, char** argv)
             return 1;
         }
         // Launch OAuth authorization flow in web browser
-        char* cmd = g_strdup_printf("xdg-open \"%s\"", auth_url->c_str());
+        auto cmd = glib::strdup_printf("xdg-open \"%s\"", auth_url->c_str());
         system(cmd);
-        g_free(cmd);
     } else if(access_token && refresh_token && expiration) {
         // Access token and refresh token provided (no need to request authorization again)
         auto expiration_time = glib::DateTime::create_from_iso8601(expiration, nullptr);

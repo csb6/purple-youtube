@@ -51,9 +51,8 @@ public:
         obj->json_str = std::move(json_str);
         // Have add Auth header here because it is normally done in proxy->new_call(), not
         // in constructor of rest::OAuth2ProxyCall, so it is not an inherited behavior
-        auto* auth_str = g_strdup_printf("Bearer %s", proxy->get_access_token());
+        auto auth_str = glib::strdup_printf("Bearer %s", proxy->get_access_token());
         obj->add_header("Authorization", auth_str);
-        g_free(auth_str);
         return obj;
     }
 
@@ -62,9 +61,8 @@ public:
                                 peel::UniquePtr<glib::Error>*)
     {
         content_type->set("application/json");
-        auto* function = g_strdup_printf("%s?part=snippet", this->get_function());
+        auto function = glib::strdup_printf("%s?part=snippet", this->get_function());
         this->set_function(function);
-        g_free(function);
         *content = std::move(json_str);
         *content_len = strlen(content->c_str());
         return true;
@@ -91,7 +89,7 @@ namespace youtube {
 #define STATE_STR_LEN 16
 
 static
-char* build_server_error_response(const char* error_str);
+peel::String build_server_error_response(const char* error_str);
 
 static
 std::expected<peel::String, ErrorPtr> extract_video_id(const char* stream_url);
@@ -478,7 +476,7 @@ bool ChatClient::Impl::is_access_expired() const
 }
 
 static
-char* build_server_error_response(const char* error_str)
+peel::String build_server_error_response(const char* error_str)
 {
     static const char error_response[] =
         "<!DOCTYPE html>"
@@ -492,7 +490,7 @@ char* build_server_error_response(const char* error_str)
           "</body>"
         "</html>";
 
-    return g_strdup_printf(error_response, error_str);
+    return glib::strdup_printf(error_response, error_str);
 }
 
 static
