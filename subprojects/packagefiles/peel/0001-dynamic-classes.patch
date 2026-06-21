@@ -1,14 +1,14 @@
-From 59a808e44f6a2e5197060870f9278c270a9a66c9 Mon Sep 17 00:00:00 2001
+From a8449c3dabcd4e51d3f248605b427f58279d4bd1 Mon Sep 17 00:00:00 2001
 From: Cole Blakley <cblakley15@gmail.com>
-Date: Fri, 19 Jun 2026 19:14:58 -0700
+Date: Sat, 20 Jun 2026 19:19:56 -0700
 Subject: [PATCH] Added support for dynamically-registered classes
 
 ---
- include/peel/class.h | 62 ++++++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 62 insertions(+)
+ include/peel/class.h | 66 ++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 66 insertions(+)
 
 diff --git a/include/peel/class.h b/include/peel/class.h
-index b5805c8..236281a 100644
+index b5805c8..f215b0b 100644
 --- a/include/peel/class.h
 +++ b/include/peel/class.h
 @@ -226,6 +226,39 @@ struct ClassHelper
@@ -67,7 +67,7 @@ index b5805c8..236281a 100644
  #if defined (GLIB_VERSION_2_80) && GLIB_VERSION_MAX_ALLOWED >= GLIB_VERSION_2_80
  #define _peel_once_init_enter g_once_init_enter_pointer
  #define _peel_once_init_leave g_once_init_leave_pointer
-@@ -313,6 +355,26 @@ Subclass::_peel_get_type () noexcept                                           \
+@@ -313,6 +355,30 @@ Subclass::_peel_get_type () noexcept                                           \
  }                                                                              \
  /* end of PEEL_CLASS_IMPL */
  
@@ -86,8 +86,12 @@ index b5805c8..236281a 100644
 +}                                                                              \
 +void Subclass::register_dynamic_type (GTypeModule* type_module) noexcept       \
 +{                                                                              \
-+  _peel_tp = ::peel::internals::ClassHelper<Subclass>::                        \
-+    template register_dynamic_type<ParentClass> (type_module, type_name);      \
++  if (_peel_once_init_enter (&_peel_tp))                                       \
++    {                                                                          \
++      ::GType _peel_actual_tp = ::peel::internals::ClassHelper<Subclass>::     \
++        template register_dynamic_type<ParentClass> (type_module, type_name);  \
++      _peel_once_init_leave (&_peel_tp, _peel_actual_tp);                      \
++    }                                                                          \
 +}                                                                              \
 +/* end of PEEL_CLASS_IMPL_DYNAMIC */
 +
