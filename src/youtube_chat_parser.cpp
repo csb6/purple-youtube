@@ -23,6 +23,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/Json/Node.h>
 #include <peel/Json/Path.h>
 #include <peel/GLib/DateTime.h>
+#include <peel/GLib/HashTable.h>
+#include <peel/GLib/Uri.h>
+#include <peel/GLib/UriFlags.h>
+#include <peel/GLib/UriParamsFlags.h>
 
 namespace youtube {
 
@@ -35,6 +39,25 @@ static peel::RefPtr<json::Array> match_json_path(json::Node* root, const char* p
 static peel::String match_json_string(json::Node* root, const char* path);
 static std::optional<guint> match_json_uint(json::Node* root, const char* path);
 static peel::RefPtr<glib::DateTime> match_json_date(json::Node* root, const char* path);
+
+std::expected<peel::String, ErrorPtr> extract_video_id(const char* stream_url)
+{
+    peel::UniquePtr<glib::Error> error;
+    auto stream_uri = glib::Uri::parse(stream_url, glib::UriFlags::NONE, &error);
+    if(error) {
+        return std::unexpected(std::move(error));
+    }
+    const char* query = stream_uri->get_query();
+    auto params = glib::Uri::parse_params(query, strlen(query), "&", glib::UriParamsFlags::NONE, &error);
+    if(error) {
+        return std::unexpected(std::move(error));
+    }
+    auto* video_id = (const char*)glib::HashTable::lookup(params, "v");
+    if(!video_id) {
+        return std::unexpected(glib::Error::create(YOUTUBE_CHAT_ERROR, 1, "Missing parameter in video URL"));
+    }
+    return video_id;
+}
 
 std::expected<StreamInfo, ErrorPtr> parse_stream_info(peel::ArrayRef<const char> response)
 {

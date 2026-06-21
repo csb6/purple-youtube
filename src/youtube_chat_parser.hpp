@@ -34,6 +34,8 @@ struct ResponseInfo {
     peel::String next_page_token;
 };
 
+std::expected<peel::String, ErrorPtr> extract_video_id(const char* stream_url);
+
 std::expected<StreamInfo, ErrorPtr> parse_stream_info(peel::ArrayRef<const char> response);
 
 std::expected<ResponseInfo, ErrorPtr> parse_chat_messages(peel::ArrayRef<const char> response);

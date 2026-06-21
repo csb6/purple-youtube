@@ -28,9 +28,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/ArrayRef.h>
 #include <peel/GLib/functions.h>
 #include <peel/GLib/HashTable.h>
-#include <peel/GLib/Uri.h>
-#include <peel/GLib/UriFlags.h>
-#include <peel/GLib/UriParamsFlags.h>
 #include "task.hpp"
 #include "youtube_chat_parser.hpp"
 #include "one_shot_server.hpp"
@@ -90,9 +87,6 @@ namespace youtube {
 
 static
 peel::String build_server_error_response(const char* error_str);
-
-static
-std::expected<peel::String, ErrorPtr> extract_video_id(const char* stream_url);
 
 static
 std::expected<peel::String, ErrorPtr> get_random_string();
@@ -491,26 +485,6 @@ peel::String build_server_error_response(const char* error_str)
         "</html>";
 
     return glib::strdup_printf(error_response, error_str);
-}
-
-static
-std::expected<peel::String, ErrorPtr> extract_video_id(const char* stream_url)
-{
-    peel::UniquePtr<glib::Error> error;
-    auto stream_uri = glib::Uri::parse(stream_url, glib::UriFlags::NONE, &error);
-    if(error) {
-        return std::unexpected(std::move(error));
-    }
-    const char* query = stream_uri->get_query();
-    auto params = glib::Uri::parse_params(query, strlen(query), "&", glib::UriParamsFlags::NONE, &error);
-    if(error) {
-        return std::unexpected(std::move(error));
-    }
-    auto* video_id = (const char*)glib::HashTable::lookup(params, "v");
-    if(!video_id) {
-        return std::unexpected(glib::Error::create(YOUTUBE_CHAT_ERROR, 1, "Missing parameter in video URL"));
-    }
-    return video_id;
 }
 
 static
