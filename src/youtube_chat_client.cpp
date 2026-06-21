@@ -215,24 +215,24 @@ Task<void> ChatClient::authorize()
     auto auth_listener = OneShotServer::create();
     auto auth_response = co_await auth_listener->listen(REDIRECT_PORT);
     if(!auth_response.has_value()) {
-        m_impl->pkce = {};
-        m_impl->state_str = {};
+        m_impl->pkce = nullptr;
+        m_impl->state_str = nullptr;
         co_return std::move(auth_response.error());
     }
     auto* error_str = (const char*)glib::HashTable::lookup(*auth_response, "error");
     if(error_str) {
         ErrorPtr error(YOUTUBE_CHAT_ERROR, 1, "OAuth redirect error: %s", error_str);
         co_await auth_listener->respond(soup::Status::FORBIDDEN, build_server_error_response(error->message));
-        m_impl->pkce = {};
-        m_impl->state_str = {};
+        m_impl->pkce = nullptr;
+        m_impl->state_str = nullptr;
         co_return error;
     }
     auto* auth_code = (const char*)glib::HashTable::lookup(*auth_response, "code");
     if(!auth_code) {
         ErrorPtr error(YOUTUBE_CHAT_ERROR, 1, "OAuth redirect error: Missing auth code");
         co_await auth_listener->respond(soup::Status::FORBIDDEN, build_server_error_response(error->message));
-        m_impl->pkce = {};
-        m_impl->state_str = {};
+        m_impl->pkce = nullptr;
+        m_impl->state_str = nullptr;
         co_return error;
     }
     auto* received_state_str = (const char*)glib::HashTable::lookup(*auth_response, "state");
@@ -240,7 +240,7 @@ Task<void> ChatClient::authorize()
     if(!received_state_str || strcmp(received_state_str, expected_state_str) != 0) {
         ErrorPtr error(YOUTUBE_CHAT_ERROR, 1, "OAuth redirect error: Missing/incorrect state string");
         co_await auth_listener->respond(soup::Status::FORBIDDEN, build_server_error_response(error->message));
-        m_impl->pkce = {};
+        m_impl->pkce = nullptr;
         co_return error;
     }
 
@@ -250,7 +250,7 @@ Task<void> ChatClient::authorize()
         peel::UniquePtr<glib::Error> error;
         m_impl->proxy->fetch_access_token_async(auth_code, m_impl->pkce->get_verifier(), nullptr, result.callback());
         m_impl->proxy->fetch_access_token_finish(co_await result, &error);
-        m_impl->pkce = {};
+        m_impl->pkce = nullptr;
         if(error) {
             // TODO: map GError to HTTP error code
             co_await auth_listener->respond(soup::Status::FORBIDDEN, build_server_error_response(error->message));
