@@ -44,6 +44,7 @@ struct Connection::Impl {
 
 void Connection::Class::init()
 {
+    override_vfunc_disconnect<Connection>();
     auto* klass = reinterpret_cast<PurpleConnectionClass*>(this);
     klass->connect_async = [](PurpleConnection* connection, GCancellable* cancellable,
                               GAsyncReadyCallback callback, gpointer data) {
@@ -163,6 +164,12 @@ Task<void> Connection::vfunc_connect_async(gio::Cancellable* cancellable)
         account->disconnect_with_error("Failed to connect to live chat", error.get());
     }
     co_return error;
+}
+
+bool Connection::vfunc_disconnect(const char*, peel::UniquePtr<glib::Error>*)
+{
+    m_impl->client->disconnect();
+    return true;
 }
 
 Task<void> Connection::send_message_async(const char* message, gio::Cancellable* cancellable)

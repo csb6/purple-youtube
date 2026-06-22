@@ -161,14 +161,7 @@ peel::RefPtr<ChatClient> ChatClient::create_authorized(const char* client_id, co
 
 ChatClient::~ChatClient() noexcept
 {
-    if(m_impl->refresh_timer_source) {
-        glib::Source::remove(m_impl->refresh_timer_source);
-        m_impl->refresh_timer_source = 0;
-    }
-    if(m_impl->fetch_messages_source) {
-        glib::Source::remove(m_impl->fetch_messages_source);
-        m_impl->fetch_messages_source = 0;
-    }
+    disconnect();
 }
 
 bool ChatClient::is_authorized() const
@@ -360,6 +353,19 @@ Task<void> ChatClient::connect_to_chat_async(const char* stream_url, gio::Cancel
     m_impl->fetch_messages_async(nullptr, 5000).start(); // 5000 = Default poll interval
 
     co_return {};
+}
+
+void ChatClient::disconnect()
+{
+    if(m_impl->refresh_timer_source) {
+        glib::Source::remove(m_impl->refresh_timer_source);
+        m_impl->refresh_timer_source = 0;
+    }
+    if(m_impl->fetch_messages_source) {
+        glib::Source::remove(m_impl->fetch_messages_source);
+        m_impl->fetch_messages_source = 0;
+    }
+    m_impl->is_authorized = false;
 }
 
 Task<StreamInfo> ChatClient::Impl::get_live_stream_info_async(peel::String video_id, gio::Cancellable* cancellable)

@@ -53,6 +53,7 @@ public:
     std::expected<peel::String, ErrorPtr> generate_auth_url();
     Task<void> authorize();
     Task<void> connect_to_chat_async(const char* stream_url, gio::Cancellable*);
+    void disconnect();
     Task<void> send_message_async(const char* message, gio::Cancellable*);
     bool is_authorized() const;
     const char* get_title() const;

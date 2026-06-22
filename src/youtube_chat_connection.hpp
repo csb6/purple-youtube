@@ -21,6 +21,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/class.h>
 #include <peel/String.h>
 #include <peel/RefPtr.h>
+#include <peel/UniquePtr.h>
 #include <peel/GLib/Error.h>
 #include <peel/Purple/Connection.h>
 #include <peel/Purple/Account.h>
@@ -37,6 +38,7 @@ public:
     static peel::RefPtr<Connection> create(peel::RefPtr<purple::Account>);
 
     Task<void> vfunc_connect_async(gio::Cancellable*);
+    bool vfunc_disconnect(const char* message, peel::UniquePtr<glib::Error>*);
     Task<void> send_message_async(const char* message, gio::Cancellable*);
 
     peel::String get_channel_id();
