@@ -91,6 +91,48 @@ peel::String build_server_error_response(const char* error_str);
 static
 std::expected<peel::String, ErrorPtr> get_random_string();
 
+class EventSourceToken {
+public:
+    EventSourceToken()
+        : source_id(0) {}
+    explicit
+    EventSourceToken(guint source_id)
+        : source_id(source_id) {}
+    EventSourceToken(const EventSourceToken&) = delete;
+    EventSourceToken(EventSourceToken&& other) noexcept
+        : source_id(other.source_id)
+    {
+        other.source_id = 0;
+    }
+    ~EventSourceToken() noexcept
+    {
+        disconnect();
+    }
+    EventSourceToken& operator=(const EventSourceToken&) = delete;
+    EventSourceToken& operator=(EventSourceToken&& other) noexcept
+    {
+        disconnect();
+        source_id = other.source_id;
+        other.source_id = 0;
+        return *this;
+    }
+    EventSourceToken& operator=(guint new_source_id) noexcept
+    {
+        disconnect();
+        source_id = new_source_id;
+        return *this;
+    }
+    void disconnect() noexcept
+    {
+        if(source_id) {
+            glib::Source::remove(source_id);
+            source_id = 0;
+        }
+    }
+private:
+    guint source_id;
+};
+
 PEEL_CLASS_IMPL(ChatClient, "YoutubeChatClient", gobject::Object)
 
 struct ChatClient::Impl {
@@ -110,8 +152,8 @@ struct ChatClient::Impl {
     ErrorCallback error_callback;
     StreamInfo stream_info;
     bool is_authorized;
-    unsigned refresh_timer_source = 0;
-    unsigned fetch_messages_source = 0;
+    EventSourceToken refresh_timer_source;
+    EventSourceToken fetch_messages_source;
 };
 
 decltype(ChatClient::sig_new_messages) ChatClient::sig_new_messages;
@@ -157,11 +199,6 @@ peel::RefPtr<ChatClient> ChatClient::create_authorized(const char* client_id, co
     client->m_impl->proxy->set_refresh_token(refresh_token);
     client->m_impl->proxy->set_expiration_date(access_token_expiration);
     return client;
-}
-
-ChatClient::~ChatClient() noexcept
-{
-    disconnect();
 }
 
 bool ChatClient::is_authorized() const
@@ -293,9 +330,6 @@ void ChatClient::Impl::schedule_access_token_refresh()
     if(refresh_interval <= 0) {
         this->refresh_access_token_async().start();
     } else {
-        if(this->refresh_timer_source) {
-            glib::Source::remove(this->refresh_timer_source);
-        }
         this->refresh_timer_source = glib::timeout_add_once((unsigned)refresh_interval, [this] {
             this->refresh_access_token_async().start();
         });
@@ -306,10 +340,7 @@ Task<void> ChatClient::Impl::refresh_access_token_async()
 {
     g_assert(this->is_authorized);
 
-    if(this->refresh_timer_source) {
-        glib::Source::remove(this->refresh_timer_source);
-        this->refresh_timer_source = 0;
-    }
+    this->refresh_timer_source.disconnect();
 
     AsyncResult result;
     peel::UniquePtr<glib::Error> error;
@@ -357,14 +388,8 @@ Task<void> ChatClient::connect_to_chat_async(const char* stream_url, gio::Cancel
 
 void ChatClient::disconnect()
 {
-    if(m_impl->refresh_timer_source) {
-        glib::Source::remove(m_impl->refresh_timer_source);
-        m_impl->refresh_timer_source = 0;
-    }
-    if(m_impl->fetch_messages_source) {
-        glib::Source::remove(m_impl->fetch_messages_source);
-        m_impl->fetch_messages_source = 0;
-    }
+    m_impl->refresh_timer_source.disconnect();
+    m_impl->fetch_messages_source.disconnect();
     m_impl->is_authorized = false;
 }
 
@@ -428,10 +453,7 @@ Task<void> ChatClient::Impl::fetch_messages_async(peel::String next_page_token, 
 {
     g_assert(this->is_authorized);
 
-    if(this->fetch_messages_source) {
-        glib::Source::remove(this->fetch_messages_source);
-        this->fetch_messages_source = 0;
-    }
+    this->fetch_messages_source.disconnect();
 
     if(this->is_access_expired()) {
         auto error = co_await this->refresh_access_token_async();
@@ -475,9 +497,6 @@ Task<void> ChatClient::Impl::fetch_messages_async(peel::String next_page_token, 
         // Notify all listeners that a new batch of messages has been received
         peel::ArrayRef<const ChatMessage> messages_span{messages_info->messages.data(), messages_info->messages.size()};
         sig_new_messages.emit(this->client, (void*)&messages_span);
-    }
-    if(this->fetch_messages_source) {
-        glib::Source::remove(this->fetch_messages_source);
     }
     this->fetch_messages_source = glib::timeout_add_once(messages_info->poll_interval,
         [this, next_page_token = std::move(messages_info->next_page_token),
