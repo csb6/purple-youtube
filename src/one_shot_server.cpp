@@ -50,10 +50,11 @@ public:
 
     auto callback()
     {
-        return [](soup::ServerMessage*) {
+        return [this](soup::ServerMessage*) {
             // If browser doesn't accept our response then not really
             // any reason to emit an error. The user already approved the
             // OAuth authorization and the client will continue from there.
+            handle.resume();
         };
     }
 private:
