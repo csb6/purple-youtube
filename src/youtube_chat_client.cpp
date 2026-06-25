@@ -211,6 +211,21 @@ const char* ChatClient::get_title() const
     return m_impl->stream_info.title;
 }
 
+peel::String ChatClient::get_access_token() const
+{
+    return m_impl->proxy->get_access_token();
+}
+
+peel::String ChatClient::get_refresh_token() const
+{
+    return m_impl->proxy->get_refresh_token();
+}
+
+peel::RefPtr<glib::DateTime> ChatClient::get_access_token_expiration() const
+{
+    return m_impl->proxy->get_expiration_date();
+}
+
 void ChatClient::set_error_callback(ErrorCallback&& callback)
 {
     m_impl->error_callback = std::move(callback);

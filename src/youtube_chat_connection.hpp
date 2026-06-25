@@ -39,6 +39,7 @@ public:
 
     Task<void> vfunc_connect_async(gio::Cancellable*);
     bool vfunc_disconnect(const char* message, peel::UniquePtr<glib::Error>*);
+    Task<void> join_live_chat_async(const char* stream_url, gio::Cancellable*);
     Task<void> send_message_async(const char* message, gio::Cancellable*);
 
     peel::String get_channel_id();

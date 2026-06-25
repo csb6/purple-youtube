@@ -55,6 +55,9 @@ public:
     Task<void> send_message_async(const char* message, gio::Cancellable*);
     bool is_authorized() const;
     const char* get_title() const;
+    peel::String get_access_token() const;
+    peel::String get_refresh_token() const;
+    peel::RefPtr<glib::DateTime> get_access_token_expiration() const;
 
     PEEL_SIGNAL_CONNECT_METHOD(new_messages, sig_new_messages)
 private:

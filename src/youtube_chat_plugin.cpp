@@ -22,6 +22,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/Gio/Task.h>
 #include <peel/GObject/TypeModule.h>
 #include <peel/Purple/Account.h>
+#include <peel/Purple/AccountSettings.h>
+#include <peel/Purple/AccountSettingString.h>
 #include <peel/Purple/Conversation.h>
 #include <peel/Purple/ConversationManager.h>
 #include "peel/Purple/ConversationType.h"
@@ -112,6 +114,27 @@ public:
         return protocol;
     }
 
+    peel::RefPtr<purple::AccountSettings> vfunc_get_default_account_settings()
+    {
+        auto account_settings = purple::AccountSettings::create();
+
+        // TODO: should these be in CredentialManager??
+        auto access_token = purple::AccountSettingString::create("access_token", "OAuth Access Token", "");
+        access_token->set_advanced(true);
+        account_settings->add_setting(std::move(access_token));
+
+        auto refresh_token = purple::AccountSettingString::create("refresh_token", "OAuth Refresh Token", "");
+        refresh_token->set_advanced(true);
+        account_settings->add_setting(std::move(refresh_token));
+
+        auto access_token_expiration = purple::AccountSettingString::create(
+            "access_token_expiration", "OAuth Access Token Expiration", "");
+        access_token_expiration->set_advanced(true);
+        account_settings->add_setting(std::move(access_token_expiration));
+
+        return account_settings;
+    }
+
     peel::RefPtr<purple::Connection> vfunc_create_connection(purple::Account* account, peel::UniquePtr<glib::Error>*)
     {
         return youtube::Connection::create(account);
@@ -127,12 +150,13 @@ public:
     }
 
     Task<peel::RefPtr<purple::Conversation>> vfunc_join_channel_async(
-        purple::Account* account, purple::ChannelJoinDetails*, gio::Cancellable* cancellable)
+        purple::Account* account, purple::ChannelJoinDetails* channel_details, gio::Cancellable* cancellable)
     {
         using ConvType = purple::ConversationType;
 
         auto* connection = static_cast<youtube::Connection*>(account->get_connection());
-        auto error = co_await connection->vfunc_connect_async(cancellable);
+        auto* stream_url = channel_details->get_name();
+        auto error = co_await connection->join_live_chat_async(stream_url, cancellable);
         if(error) {
             co_return std::unexpected(std::move(error));
         }
@@ -165,6 +189,7 @@ PEEL_CLASS_IMPL_DYNAMIC(Protocol, "YoutubeProtocol", purple::Protocol)
 void Protocol::Class::init()
 {
     override_vfunc_create_connection<Protocol>();
+    override_vfunc_get_default_account_settings<Protocol>();
 }
 
 } // namespace youtube

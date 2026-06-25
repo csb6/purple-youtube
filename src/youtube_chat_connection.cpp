@@ -39,6 +39,7 @@ PEEL_CLASS_IMPL_DYNAMIC(Connection, "YoutubeConnection", purple::Connection)
 
 struct Connection::Impl {
     peel::RefPtr<ChatClient> client;
+    peel::String stream_url;
     peel::SignalConnection::Token connect_new_messages_token;
 };
 
@@ -51,8 +52,12 @@ void Connection::Class::init()
         auto* self = reinterpret_cast<youtube::Connection*>(connection);
         auto* task = reinterpret_cast<gio::Task*>(g_task_new(connection, cancellable, callback, data));
         [](youtube::Connection* self, gio::Task* task) -> VoidTask {
-            auto result = co_await self->vfunc_connect_async(task->get_cancellable());
-            task->return_error(result->copy());
+            auto error = co_await self->vfunc_connect_async(task->get_cancellable());
+            if(error) {
+                task->return_error(error->copy());
+            } else {
+                task->return_boolean(true);
+            }
         }(self, task).start();
     };
     klass->connect_finish = [](PurpleConnection*, GAsyncResult* result, GError** error) {
@@ -96,6 +101,8 @@ peel::RefPtr<Connection> Connection::create(peel::RefPtr<purple::Account> accoun
     });
     connection->m_impl->connect_new_messages_token = client->connect_new_messages(
             [connection](youtube::ChatClient*, void* data) {
+        using ConvType = purple::ConversationType;
+
         auto* account = connection->get_account();
         auto* core = purple::Core::get_default();
         auto* contact_manager = core->get_contact_manager();
@@ -103,19 +110,15 @@ peel::RefPtr<Connection> Connection::create(peel::RefPtr<purple::Account> accoun
         auto* messages = static_cast<peel::ArrayRef<const youtube::ChatMessage>*>(data);
         // TODO: can technically avoid re-fetching/resetting display_name property since not likely to
         //  change during course of a chat
+        peel::RefPtr conversation = conversation_manager->find(
+            account, ConvType::CHANNEL, connection->get_channel_id().c_str());
+        if(!conversation) {
+            g_warning("Conversation doesn't exist for stream: %s", connection->get_channel_id().c_str());
+            return;
+        }
         for(const auto& message : *messages) {
-            using ConvType = purple::ConversationType;
-
             auto contact = contact_manager->find_or_create(account, message.channel_id.c_str(), nullptr);
             contact->set_display_name(message.display_name.c_str());
-
-            // Note: also using channel ID as conversation ID
-            peel::RefPtr conversation = conversation_manager->find(
-                account, ConvType::CHANNEL, message.channel_id.c_str());
-            if(!conversation) {
-                conversation = purple::Conversation::create(account, ConvType::CHANNEL, message.channel_id.c_str());
-                conversation_manager->add(conversation);
-            }
 
             auto author = conversation->get_members()->find_or_add_member(
                 contact, /*announce=*/false, /*message=*/"");
@@ -130,8 +133,8 @@ peel::RefPtr<Connection> Connection::create(peel::RefPtr<purple::Account> accoun
 
 Task<void> Connection::vfunc_connect_async(gio::Cancellable* cancellable)
 {
-    // Authorize client if needed
     auto* account = this->get_account();
+    // Authorize client if needed
     if(!m_impl->client->is_authorized()) {
         peel::UniquePtr<glib::Error> error;
         auto url = m_impl->client->generate_auth_url();
@@ -154,22 +157,27 @@ Task<void> Connection::vfunc_connect_async(gio::Cancellable* cancellable)
             account->disconnect_with_error("Authorization failed", error_ptr.get());
             co_return error_ptr;
         }
+        auto* settings = account->get_settings();
+        settings->set_string("access_token", m_impl->client->get_access_token());
+        settings->set_string("refresh_token", m_impl->client->get_refresh_token());
+        auto access_token_expiration = m_impl->client->get_access_token_expiration();
+        settings->set_string("access_token_expiration", access_token_expiration->format_iso8601());
     }
 
-    // Connect to the YouTube stream
-    auto* settings = account->get_settings();
-    const char* stream_url = settings->get_string("stream_url", "");
-    auto error = co_await m_impl->client->connect_to_chat_async(stream_url, cancellable);
-    if(error) {
-        account->disconnect_with_error("Failed to connect to live chat", error.get());
-    }
-    co_return error;
+    account->ready();
+    co_return {};
 }
 
 bool Connection::vfunc_disconnect(const char*, peel::UniquePtr<glib::Error>*)
 {
     m_impl->client->disconnect();
     return true;
+}
+
+Task<void> Connection::join_live_chat_async(const char* stream_url, gio::Cancellable* cancellable)
+{
+    m_impl->stream_url = stream_url;
+    return m_impl->client->connect_to_chat_async(stream_url, cancellable);
 }
 
 Task<void> Connection::send_message_async(const char* message, gio::Cancellable* cancellable)
@@ -179,8 +187,7 @@ Task<void> Connection::send_message_async(const char* message, gio::Cancellable*
 
 peel::String Connection::get_channel_id()
 {
-    auto* settings = this->get_account()->get_settings();
-    return settings->get_string("stream_url", "");
+    return m_impl->stream_url;
 }
 
 peel::String Connection::get_title()
