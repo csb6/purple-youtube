@@ -1,25 +1,30 @@
-From cadd4d95b067fe1ec15017e729dc894e3235ed7f Mon Sep 17 00:00:00 2001
+From cf486fd49ecfa6060b7dd287d46a1ce08ca0ed9d Mon Sep 17 00:00:00 2001
 From: Cole Blakley <cblakley15@gmail.com>
-Date: Sun, 21 Jun 2026 19:36:38 -0700
+Date: Thu, 25 Jun 2026 19:14:09 -0700
 Subject: [PATCH] Added support for dynamically-registered classes
 
 ---
- include/peel/class.h | 96 ++++++++++++++++++++++++++++++++++++++++++++
- 1 file changed, 96 insertions(+)
+ include/peel/class.h | 110 +++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 110 insertions(+)
 
 diff --git a/include/peel/class.h b/include/peel/class.h
-index b5805c8..6397710 100644
+index b5805c8..97bc5ad 100644
 --- a/include/peel/class.h
 +++ b/include/peel/class.h
-@@ -1,6 +1,7 @@
- #pragma once
+@@ -10,6 +10,12 @@ peel_begin_header
  
- #include <peel/GObject/Type.h>
-+#include <peel/GObject/TypeModule.h>
- #include <peel/lang.h>
- #include <peel/property.h>
- #include <type_traits>
-@@ -56,6 +57,13 @@ struct TypeInitHelper
+ namespace peel
+ {
++
++namespace GObject
++{
++class TypeModule;
++}
++
+ namespace internals
+ {
+ 
+@@ -56,6 +62,13 @@ struct TypeInitHelper
    {
      (void) tp;
    }
@@ -33,7 +38,7 @@ index b5805c8..6397710 100644
  };
  
  template<typename Subclass>
-@@ -66,6 +74,12 @@ struct TypeInitHelper<Subclass, void_t<decltype (&Subclass::init_type)>>
+@@ -66,6 +79,12 @@ struct TypeInitHelper<Subclass, void_t<decltype (&Subclass::init_type)>>
    {
      Subclass::init_type (tp);
    }
@@ -46,7 +51,7 @@ index b5805c8..6397710 100644
  };
  
  template<typename Subclass>
-@@ -226,6 +240,39 @@ struct ClassHelper
+@@ -226,6 +245,39 @@ struct ClassHelper
      TypeInitHelper<Subclass>::call_type_init (tp);
      return tp;
    }
@@ -54,19 +59,19 @@ index b5805c8..6397710 100644
 +  template<typename ParentClass>
 +  G_NO_INLINE
 +  static ::GType
-+  register_dynamic_type (peel::GObject::TypeModule *type_module, const char *type_name) noexcept
++  register_type_dynamic (peel::GObject::TypeModule *type_module, const char *type_name) noexcept
 +  {
 +    const ::GTypeInfo type_info = {
-+      .class_size = sizeof (typename Subclass::Class),
-+      .base_init = nullptr,
-+      .base_finalize = nullptr,
-+      .class_init = &class_init<ParentClass>,
-+      .class_finalize = nullptr,
-+      .class_data = nullptr,
-+      .instance_size = sizeof (Subclass),
-+      .n_preallocs = 0,
-+      .instance_init = InstanceInitHelper<Subclass>::get_instance_init (),
-+      .value_table = nullptr
++      sizeof (typename Subclass::Class),
++      nullptr,
++      nullptr,
++      &class_init<ParentClass>,
++      nullptr,
++      nullptr,
++      sizeof (Subclass),
++      0,
++      InstanceInitHelper<Subclass>::get_instance_init (),
++      nullptr
 +    };
 +    ::GTypeFlags type_flags = ::GTypeFlags (0);
 +#if GLIB_CHECK_VERSION (2, 70, 0)
@@ -75,7 +80,7 @@ index b5805c8..6397710 100644
 +#endif
 +
 +    ::GType tp = g_type_module_register_type (
-+        reinterpret_cast<::GTypeModule*>(type_module),
++        reinterpret_cast<::GTypeModule *> (type_module),
 +        Type::of<ParentClass> (),
 +        type_name,
 +        &type_info,
@@ -86,23 +91,32 @@ index b5805c8..6397710 100644
  };
  
  } /* namespace internals */
-@@ -287,6 +334,15 @@ protected:                                                                     \
+@@ -287,6 +339,24 @@ protected:                                                                     \
  private:                                                                       \
  /* end of PEEL_SIMPLE_CLASS */
  
-+#define PEEL_DYNAMIC_CLASS(Subclass, ParentClass)                              \
-+ PEEL_SIMPLE_CLASS (Subclass, ParentClass)                                     \
++#define PEEL_DYNAMIC_CLASS(Subclass)                                           \
++ PEEL_CLASS (Subclass)                                                         \
 +public:                                                                        \
 + static void                                                                   \
-+ register_dynamic_type (peel::GObject::TypeModule *) noexcept;                 \
++ register_type_dynamic (::peel::GObject::TypeModule *) noexcept;               \
 +private:                                                                       \
 + static ::GType _peel_tp;                                                      \
 +/* end of PEEL_DYNAMIC_CLASS */
 +
++#define PEEL_SIMPLE_DYNAMIC_CLASS(Subclass, ParentClass)                       \
++ PEEL_SIMPLE_CLASS(Subclass, ParentClass)                                      \
++public:                                                                        \
++ static void                                                                   \
++ register_type_dynamic (::peel::GObject::TypeModule *) noexcept;               \
++private:                                                                       \
++ static ::GType _peel_tp;                                                      \
++/* end of PEEL_SIMPLE_DYNAMIC_CLASS */
++
  #if defined (GLIB_VERSION_2_80) && GLIB_VERSION_MAX_ALLOWED >= GLIB_VERSION_2_80
  #define _peel_once_init_enter g_once_init_enter_pointer
  #define _peel_once_init_leave g_once_init_leave_pointer
-@@ -313,6 +369,27 @@ Subclass::_peel_get_type () noexcept                                           \
+@@ -313,6 +383,27 @@ Subclass::_peel_get_type () noexcept                                           \
  }                                                                              \
  /* end of PEEL_CLASS_IMPL */
  
@@ -112,25 +126,25 @@ index b5805c8..6397710 100644
 +::peel::GObject::Type                                                          \
 +Subclass::_peel_get_type () noexcept                                           \
 +{                                                                              \
-+  if (!Subclass::_peel_tp)                                                     \
++  if (G_UNLIKELY (!Subclass::_peel_tp))                                        \
 +    {                                                                          \
 +      g_critical("Using uninitialized dynamic type: %s", type_name);           \
 +      g_abort();                                                               \
 +    }                                                                          \
 +  return Subclass::_peel_tp;                                                   \
 +}                                                                              \
-+void Subclass::register_dynamic_type                                           \
-+  (peel::GObject::TypeModule *type_module) noexcept                            \
++void Subclass::register_type_dynamic                                           \
++  (::peel::GObject::TypeModule *type_module) noexcept                          \
 +{                                                                              \
 +  _peel_tp = ::peel::internals::ClassHelper<Subclass>::                        \
-+    template register_dynamic_type<ParentClass> (type_module, type_name);      \
++    template register_type_dynamic<ParentClass> (type_module, type_name);      \
 +}                                                                              \
 +/* end of PEEL_CLASS_IMPL_DYNAMIC */
 +
  #define PEEL_IMPLEMENT_INTERFACE(tp, Interface)                                \
  do                                                                             \
    {                                                                            \
-@@ -331,4 +408,23 @@ do                                                                             \
+@@ -331,4 +422,23 @@ do                                                                             \
  while (0)                                                                      \
  /* end of PEEL_IMPLEMENT_INTERFACE */
  
@@ -145,7 +159,7 @@ index b5805c8..6397710 100644
 +      nullptr                                                                  \
 +    };                                                                         \
 +    g_type_module_add_interface (                                              \
-+      reinterpret_cast<::GTypeModule*>(type_module),                           \
++      reinterpret_cast<::GTypeModule *> (type_module),                         \
 +      static_cast<::GType> (tp),                                               \
 +      ::peel::GObject::Type::of<Interface> (),                                 \
 +      &iface_info);                                                            \

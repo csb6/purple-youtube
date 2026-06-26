@@ -32,7 +32,7 @@ namespace youtube {
 
 /* Represents a YouTube Live Chat connection */
 class Connection final : public purple::Connection {
-    PEEL_DYNAMIC_CLASS(Connection, purple::Connection)
+    PEEL_SIMPLE_DYNAMIC_CLASS(Connection, purple::Connection)
 public:
     void init(Class*);
     static peel::RefPtr<Connection> create(peel::RefPtr<purple::Account>);
