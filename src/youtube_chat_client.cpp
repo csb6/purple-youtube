@@ -125,7 +125,9 @@ public:
     void disconnect() noexcept
     {
         if(source_id) {
-            glib::Source::remove(source_id);
+            if(!g_source_remove(source_id)) {
+                g_warning("Failed to remove event source: %d", source_id);
+            }
             source_id = 0;
         }
     }
@@ -139,7 +141,7 @@ struct ChatClient::Impl {
     void call_error_callback(glib::Error*);
     // Operations
     void schedule_access_token_refresh();
-    Task<void> refresh_access_token_async();
+    Task<void> refresh_access_token_async(gio::Cancellable*);
     Task<StreamInfo> get_live_stream_info_async(peel::String video_id, gio::Cancellable*);
     Task<void> fetch_messages_async(peel::String next_page_token, guint poll_interval);
 
@@ -154,6 +156,7 @@ struct ChatClient::Impl {
     bool is_authorized;
     EventSourceToken refresh_timer_source;
     EventSourceToken fetch_messages_source;
+    peel::RefPtr<gio::Cancellable> cancellable;
 };
 
 decltype(ChatClient::sig_new_messages) ChatClient::sig_new_messages;
@@ -177,6 +180,7 @@ void ChatClient::init(Class*)
     auto logger = soup::Logger::create(soup::Logger::LogLevel::BODY);
     m_impl->proxy->add_soup_feature(logger);
     #endif
+    m_impl->cancellable = gio::Cancellable::create();
 }
 
 peel::RefPtr<ChatClient> ChatClient::create(const char* client_id, const char* client_secret)
@@ -199,6 +203,11 @@ peel::RefPtr<ChatClient> ChatClient::create_authorized(const char* client_id, co
     client->m_impl->proxy->set_refresh_token(refresh_token);
     client->m_impl->proxy->set_expiration_date(access_token_expiration);
     return client;
+}
+
+ChatClient::~ChatClient() noexcept
+{
+    m_impl->cancellable->cancel();
 }
 
 bool ChatClient::is_authorized() const
@@ -343,15 +352,15 @@ void ChatClient::Impl::schedule_access_token_refresh()
     // Refresh 2 minutes before the expiration date
     int64_t refresh_interval = expiration->difference(now) - 120000;
     if(refresh_interval <= 0) {
-        this->refresh_access_token_async().start();
+        this->refresh_access_token_async(this->cancellable).start();
     } else {
         this->refresh_timer_source = glib::timeout_add_once((unsigned)refresh_interval, [this] {
-            this->refresh_access_token_async().start();
+            this->refresh_access_token_async(this->cancellable).start();
         });
     }
 }
 
-Task<void> ChatClient::Impl::refresh_access_token_async()
+Task<void> ChatClient::Impl::refresh_access_token_async(gio::Cancellable* cancellable)
 {
     g_assert(this->is_authorized);
 
@@ -359,7 +368,7 @@ Task<void> ChatClient::Impl::refresh_access_token_async()
 
     AsyncResult result;
     peel::UniquePtr<glib::Error> error;
-    this->proxy->refresh_access_token_async(nullptr, result.callback());
+    this->proxy->refresh_access_token_async(cancellable, result.callback());
     this->proxy->refresh_access_token_finish(co_await result, &error);
     if(error) {
         co_return error;
@@ -379,7 +388,9 @@ Task<void> ChatClient::connect_to_chat_async(const char* stream_url, gio::Cancel
 {
     g_assert(m_impl->is_authorized);
     if(m_impl->is_access_expired()) {
-        auto error = co_await m_impl->refresh_access_token_async();
+        // Note: use passed in cancellable instead of m_impl->cancellable since this is a one-off
+        //   operation and not a periodic operation
+        auto error = co_await m_impl->refresh_access_token_async(cancellable);
         if(error) {
             co_return error;
         }
@@ -389,6 +400,8 @@ Task<void> ChatClient::connect_to_chat_async(const char* stream_url, gio::Cancel
     if(!video_id.has_value()) {
         co_return std::move(video_id.error());
     }
+    // Note: use passed in cancellable instead of m_impl->cancellable since this is a one-off
+    //   operation and not a periodic operation
     auto live_stream_info = co_await m_impl->get_live_stream_info_async(std::move(*video_id), cancellable);
     if(!live_stream_info.has_value()) {
         co_return std::move(live_stream_info.error());
@@ -405,6 +418,8 @@ void ChatClient::disconnect()
 {
     m_impl->refresh_timer_source.disconnect();
     m_impl->fetch_messages_source.disconnect();
+    // Ensures any pending async operations are cancelled
+    m_impl->cancellable->cancel();
     m_impl->is_authorized = false;
 }
 
@@ -414,7 +429,9 @@ Task<StreamInfo> ChatClient::Impl::get_live_stream_info_async(peel::String video
         co_return std::unexpected(ErrorPtr(YOUTUBE_CHAT_ERROR, 1, "Client is not authorized to make API calls"));
     }
     if(this->is_access_expired()) {
-        auto error = co_await this->refresh_access_token_async();
+        // Note: use passed in cancellable instead of m_impl->cancellable since this is a one-off
+        //   operation and not a periodic operation
+        auto error = co_await this->refresh_access_token_async(cancellable);
         if(error) {
             co_return std::unexpected(error);
         }
@@ -447,7 +464,9 @@ Task<void> ChatClient::send_message_async(const char* message, gio::Cancellable*
 {
     g_assert(m_impl->is_authorized);
     if(m_impl->is_access_expired()) {
-        auto error = co_await m_impl->refresh_access_token_async();
+        // Note: use passed in cancellable instead of m_impl->cancellable since this is a one-off
+        //   operation and not a periodic operation
+        auto error = co_await m_impl->refresh_access_token_async(cancellable);
         if(error) {
             co_return error;
         }
@@ -459,6 +478,8 @@ Task<void> ChatClient::send_message_async(const char* message, gio::Cancellable*
 
     AsyncResult result;
     peel::UniquePtr<glib::Error> error;
+    // Note: use passed in cancellable instead of m_impl->cancellable since this is a one-off
+    //   operation and not a periodic operation
     call->invoke_async(cancellable, result.callback());
     call->invoke_finish(co_await result, &error);
     co_return error;
@@ -471,7 +492,7 @@ Task<void> ChatClient::Impl::fetch_messages_async(peel::String next_page_token, 
     this->fetch_messages_source.disconnect();
 
     if(this->is_access_expired()) {
-        auto error = co_await this->refresh_access_token_async();
+        auto error = co_await this->refresh_access_token_async(this->cancellable);
         if(error) {
             co_return error;
         }
@@ -492,7 +513,7 @@ Task<void> ChatClient::Impl::fetch_messages_async(peel::String next_page_token, 
         AsyncResult result;
         peel::UniquePtr<glib::Error> error;
         g_print("Poll interval: %u\n", poll_interval);
-        call->invoke_async(nullptr, result.callback());
+        call->invoke_async(this->cancellable, result.callback());
         call->invoke_finish(co_await result, &error);
         if(error) {
             // TODO: implement some kind of retry mechanism then give up

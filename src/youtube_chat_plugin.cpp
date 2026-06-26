@@ -61,21 +61,39 @@ public:
                 auto* _peel_details = reinterpret_cast<purple::ChannelJoinDetails*>(details);
                 [](youtube::Protocol* self, purple::Account* account, purple::ChannelJoinDetails* details,
                    gio::Task* task) -> VoidTask {
-                        auto conversation = co_await self->vfunc_join_channel_async(
-                            account, details, task->get_cancellable());
-                        if(conversation.has_value()) {
-                            task->return_pointer(std::move(conversation.value()).release_ref(), g_object_unref);
-                        } else {
-                            task->return_error(conversation.error()->copy());
-                        }
+                    auto conversation = co_await self->vfunc_join_channel_async(
+                        account, details, task->get_cancellable());
+                    if(conversation.has_value()) {
+                        task->return_pointer(std::move(conversation.value()).release_ref(), g_object_unref);
+                    } else {
+                        task->return_error(conversation.error()->copy());
+                    }
                 }(self, _peel_account, _peel_details, task).start();
             };
         iface_class->join_channel_finish =
             [](PurpleProtocolConversation*, GAsyncResult* result, GError** error) {
                 return (PurpleConversation*)g_task_propagate_pointer(G_TASK(result), error);
             };
-        //iface->override_vfunc_leave_conversation_async<Protocol>();
-        //iface->override_vfunc_leave_conversation_finish<Protocol>();
+        iface_class->leave_conversation_async =
+            [](PurpleProtocolConversation* protocol, PurpleConversation* conversation, GCancellable* cancellable,
+               GAsyncReadyCallback callback, gpointer data) {
+                auto* self = reinterpret_cast<youtube::Protocol*>(protocol);
+                auto* task = reinterpret_cast<gio::Task*>(g_task_new(protocol, cancellable, callback, data));
+                auto* _peel_conversation = reinterpret_cast<purple::Conversation*>(conversation);
+                [](youtube::Protocol* self, purple::Conversation* conversation, gio::Task* task) -> VoidTask {
+                    auto error = co_await self->vfunc_leave_conversation_async(
+                        conversation, task->get_cancellable());
+                    if(error) {
+                        task->return_error(error->copy());
+                    } else {
+                        task->return_boolean(true);
+                    }
+                }(self, _peel_conversation, task).start();
+            };
+        iface_class->leave_conversation_finish = [](PurpleProtocolConversation*, GAsyncResult* result,
+                                                    GError** error) {
+            return g_task_propagate_boolean(G_TASK(result), error);
+        };
         iface_class->send_message_async =
             [](PurpleProtocolConversation* protocol, PurpleConversation* conversation, PurpleMessage* message,
                GCancellable* cancellable, GAsyncReadyCallback callback, gpointer data) {
@@ -172,6 +190,15 @@ public:
         conversation->set_title(connection->get_title());
         conversation_manager->add(conversation);
         co_return conversation;
+    }
+
+    Task<void> vfunc_leave_conversation_async(purple::Conversation* conversation, gio::Cancellable*)
+    {
+        // TODO: might want to have client distinguish between a connection and a connected conversation
+        auto* connection = static_cast<youtube::Connection*>(conversation->get_connection());
+        peel::UniquePtr<glib::Error> error;
+        connection->vfunc_disconnect("Left conversation", &error);
+        co_return error;
     }
 
     Task<void> vfunc_send_message_async(purple::Conversation* conversation, purple::Message* message,
