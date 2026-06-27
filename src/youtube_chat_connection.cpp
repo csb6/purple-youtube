@@ -40,7 +40,6 @@ PEEL_CLASS_IMPL_DYNAMIC(Connection, "YoutubeConnection", purple::Connection)
 struct Connection::Impl {
     peel::RefPtr<ChatClient> client;
     peel::String stream_url;
-    peel::SignalConnection::Token connect_new_messages_token;
 };
 
 void Connection::Class::init()
@@ -99,36 +98,59 @@ peel::RefPtr<Connection> Connection::create(peel::RefPtr<purple::Account> accoun
         // TODO: is there a better way to log errors?
         g_printerr("Error: %s\n", error->message);
     });
-    connection->m_impl->connect_new_messages_token = client->connect_new_messages(
-            [connection](youtube::ChatClient*, void* data) {
-        using ConvType = purple::ConversationType;
-
-        auto* account = connection->get_account();
-        auto* core = purple::Core::get_default();
-        auto* contact_manager = core->get_contact_manager();
-        auto* conversation_manager = core->get_conversation_manager();
-        auto* messages = static_cast<peel::ArrayRef<const youtube::ChatMessage>*>(data);
-        // TODO: can technically avoid re-fetching/resetting display_name property since not likely to
-        //  change during course of a chat
-        peel::RefPtr conversation = conversation_manager->find(
-            account, ConvType::CHANNEL, connection->get_channel_id().c_str());
-        if(!conversation) {
-            g_warning("Conversation doesn't exist for stream: %s", connection->get_channel_id().c_str());
-            return;
-        }
-        for(const auto& message : *messages) {
-            auto contact = contact_manager->find_or_create(account, message.channel_id.c_str(), nullptr);
-            contact->set_display_name(message.display_name.c_str());
-
-            auto author = conversation->get_members()->find_or_add_member(
-                contact, /*announce=*/false, /*message=*/"");
-            auto purple_msg = purple::Message::create(author, message.content.c_str());
-            purple_msg->set_timestamp(message.timestamp);
-            conversation->write_message(purple_msg);
-        }
-    });
+    client->connect_access_token_changed(
+        static_cast<Connection*>(connection), &Connection::on_access_token_changed);
+    client->connect_refresh_token_changed(
+        static_cast<Connection*>(connection), &Connection::on_refresh_token_changed);
+    client->connect_access_token_expiration_changed(
+        static_cast<Connection*>(connection), &Connection::on_access_token_expiration_changed);
+    client->connect_new_messages(static_cast<Connection*>(connection), &Connection::on_new_messages);
 
     return connection;
+}
+
+void Connection::on_access_token_changed(ChatClient*, const char* access_token)
+{
+    get_account()->get_settings()->set_string("access_token", access_token);
+}
+
+void Connection::on_refresh_token_changed(ChatClient*, const char* refresh_token)
+{
+    get_account()->get_settings()->set_string("refresh_token", refresh_token);
+}
+
+void Connection::on_access_token_expiration_changed(ChatClient*, glib::DateTime* expiration)
+{
+    get_account()->get_settings()->set_string("access_token_expiration", expiration->format_iso8601());
+}
+
+void Connection::on_new_messages(ChatClient*, void* data)
+{
+    using ConvType = purple::ConversationType;
+
+    auto* account = get_account();
+    auto* core = purple::Core::get_default();
+    auto* contact_manager = core->get_contact_manager();
+    auto* conversation_manager = core->get_conversation_manager();
+    auto* messages = static_cast<peel::ArrayRef<const youtube::ChatMessage>*>(data);
+    // TODO: can technically avoid re-fetching/resetting display_name property since not likely to
+    //  change during course of a chat
+    peel::RefPtr conversation = conversation_manager->find(
+        account, ConvType::CHANNEL, get_channel_id().c_str());
+    if(!conversation) {
+        g_warning("Conversation doesn't exist for stream: %s", get_channel_id().c_str());
+        return;
+    }
+    for(const auto& message : *messages) {
+        auto contact = contact_manager->find_or_create(account, message.channel_id.c_str(), nullptr);
+        contact->set_display_name(message.display_name.c_str());
+
+        auto author = conversation->get_members()->find_or_add_member(
+            contact, /*announce=*/false, /*message=*/"");
+        auto purple_msg = purple::Message::create(author, message.content.c_str());
+        purple_msg->set_timestamp(message.timestamp);
+        conversation->write_message(purple_msg);
+    }
 }
 
 Task<void> Connection::vfunc_connect_async(gio::Cancellable* cancellable)
@@ -157,11 +179,6 @@ Task<void> Connection::vfunc_connect_async(gio::Cancellable* cancellable)
             account->disconnect_with_error("Authorization failed", error_ptr.get());
             co_return error_ptr;
         }
-        auto* settings = account->get_settings();
-        settings->set_string("access_token", m_impl->client->get_access_token());
-        settings->set_string("refresh_token", m_impl->client->get_refresh_token());
-        auto access_token_expiration = m_impl->client->get_access_token_expiration();
-        settings->set_string("access_token_expiration", access_token_expiration->format_iso8601());
     }
 
     account->ready();

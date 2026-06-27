@@ -77,6 +77,16 @@ int main(int argc, char** argv)
         g_printerr("Error: %s\n", error->message);
         main_loop->quit();
     });
+    client->connect_access_token_changed([](youtube::ChatClient*, const char* access_token) {
+        g_message("Access token: %s", access_token);
+    });
+    client->connect_refresh_token_changed([](youtube::ChatClient*, const char* refresh_token) {
+        g_message("Refresh token: %s", refresh_token);
+    });
+    client->connect_access_token_expiration_changed([](youtube::ChatClient*, glib::DateTime* expiration) {
+        auto expiration_str = expiration->format_iso8601();
+        g_message("Access token: %s", expiration_str.c_str());
+    });
     client->connect_new_messages([](youtube::ChatClient*, void* data) {
         auto& messages = *static_cast<peel::ArrayRef<const youtube::ChatMessage>*>(data);
         for(const auto& msg : messages) {

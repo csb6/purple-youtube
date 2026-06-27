@@ -159,11 +159,12 @@ struct ChatClient::Impl {
     peel::RefPtr<gio::Cancellable> cancellable;
 };
 
-decltype(ChatClient::sig_new_messages) ChatClient::sig_new_messages;
-
 void ChatClient::Class::init()
 {
     sig_new_messages = decltype(sig_new_messages)::create("new-messages");
+    sig_access_token_changed = decltype(sig_access_token_changed)::create("access-token-changed");
+    sig_refresh_token_changed = decltype(sig_refresh_token_changed)::create("refresh-token-changed");
+    sig_access_token_expiration_changed = decltype(sig_access_token_expiration_changed)::create("access-token-expiration-changed");
 }
 
 void ChatClient::init(Class*)
@@ -180,6 +181,12 @@ void ChatClient::init(Class*)
     auto logger = soup::Logger::create(soup::Logger::LogLevel::BODY);
     m_impl->proxy->add_soup_feature(logger);
     #endif
+    m_impl->proxy->connect_notify(rest::OAuth2Proxy::prop_access_token(),
+                                  this, &ChatClient::on_access_token_changed);
+    m_impl->proxy->connect_notify(rest::OAuth2Proxy::prop_refresh_token(),
+                                  this, &ChatClient::on_refresh_token_changed);
+    m_impl->proxy->connect_notify(rest::OAuth2Proxy::prop_expiration_date(),
+                                  this, &ChatClient::on_access_token_expiration_changed);
     m_impl->cancellable = gio::Cancellable::create();
 }
 
@@ -233,6 +240,22 @@ peel::String ChatClient::get_refresh_token() const
 peel::RefPtr<glib::DateTime> ChatClient::get_access_token_expiration() const
 {
     return m_impl->proxy->get_expiration_date();
+}
+
+void ChatClient::on_access_token_changed(gobject::Object*, gobject::ParamSpec*)
+{
+    sig_access_token_changed.emit(this, get_access_token());
+}
+
+void ChatClient::on_refresh_token_changed(gobject::Object*, gobject::ParamSpec*)
+{
+    sig_refresh_token_changed.emit(this, get_refresh_token());
+}
+
+void ChatClient::on_access_token_expiration_changed(gobject::Object*, gobject::ParamSpec*)
+{
+    auto expiration = get_access_token_expiration();
+    sig_access_token_expiration_changed.emit(this, expiration);
 }
 
 void ChatClient::set_error_callback(ErrorCallback&& callback)
@@ -334,10 +357,6 @@ Task<void> ChatClient::authorize()
     if(error) {
         co_return error;
     }
-    g_message("Access token: %s\n", m_impl->proxy->get_access_token());
-    g_message("Refresh token: %s\n", m_impl->proxy->get_refresh_token());
-    auto expiration = m_impl->proxy->get_expiration_date();
-    g_message("Token expiration: %s\n", expiration->format_iso8601().c_str());
     m_impl->schedule_access_token_refresh();
 
     // TODO: seems like librest is treating some error responses as success. If we send an empty client

@@ -62,9 +62,19 @@ public:
     peel::RefPtr<glib::DateTime> get_access_token_expiration() const;
 
     PEEL_SIGNAL_CONNECT_METHOD(new_messages, sig_new_messages)
+    PEEL_SIGNAL_CONNECT_METHOD(access_token_changed, sig_access_token_changed)
+    PEEL_SIGNAL_CONNECT_METHOD(refresh_token_changed, sig_refresh_token_changed)
+    PEEL_SIGNAL_CONNECT_METHOD(access_token_expiration_changed, sig_access_token_expiration_changed)
 private:
+    void on_access_token_changed(gobject::Object*, gobject::ParamSpec*);
+    void on_refresh_token_changed(gobject::Object*, gobject::ParamSpec*);
+    void on_access_token_expiration_changed(gobject::Object*, gobject::ParamSpec*);
+
     // TODO: find way to pass std::ArrayRef<const ChatMessage> as a parameter
-    static peel::Signal<ChatClient, void(void*)> sig_new_messages;
+    inline static peel::Signal<ChatClient, void(void*)> sig_new_messages;
+    inline static peel::Signal<ChatClient, void(const char*)> sig_access_token_changed;
+    inline static peel::Signal<ChatClient, void(const char*)> sig_refresh_token_changed;
+    inline static peel::Signal<ChatClient, void(glib::DateTime*)> sig_access_token_expiration_changed;
 
     struct Impl;
     std::unique_ptr<Impl> m_impl;

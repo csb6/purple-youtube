@@ -28,7 +28,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "youtube_types.hpp"
 #include "task.hpp"
 
+namespace peel::GLib {
+class DateTime;
+} // namespace peel::GLib
+
 namespace youtube {
+
+class ChatClient;
 
 /* Represents a YouTube Live Chat connection */
 class Connection final : public purple::Connection {
@@ -46,6 +52,12 @@ public:
     peel::String get_title();
 private:
     struct Impl;
+
+    void on_access_token_changed(ChatClient*, const char*);
+    void on_refresh_token_changed(ChatClient*, const char*);
+    void on_access_token_expiration_changed(ChatClient*, glib::DateTime*);
+    void on_new_messages(ChatClient*, void* data);
+
     std::unique_ptr<Impl> m_impl;
 };
 
