@@ -244,10 +244,10 @@ Task<void> ChatClient::authorize()
         "<!DOCTYPE html>"
         "<html lang=\"en\">"
           "<head>"
-            "<title>Purple-Youtube - Authorization Successful</title>"
+            "<title>Purple-YT - Authorization Successful</title>"
           "</head>"
           "<body>"
-            "<p>Successfully authorized Purple-Youtube! You can close this tab.</p>"
+            "<p>Successfully authorized Purple-YT! You can close this tab.</p>"
           "</body>"
         "</html>";
 
@@ -533,10 +533,10 @@ peel::String build_server_error_response(const char* error_str)
         "<!DOCTYPE html>"
         "<html lang=\"en\">"
           "<head>"
-            "<title>Purple-Youtube - Error</title>"
+            "<title>Purple-YT - Error</title>"
           "</head>"
           "<body>"
-            "<p>Failed to grant permissions to Purple-Youtube:</p>"
+            "<p>Failed to grant permissions to Purple-YT:</p>"
             "<p>%s</p>"
           "</body>"
         "</html>";
