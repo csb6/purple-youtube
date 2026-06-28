@@ -73,7 +73,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    client->set_error_callback([main_loop](glib::Error* error) {
+    client->connect_error([main_loop](youtube::ChatClient*, const glib::Error* error) {
         g_printerr("Error: %s\n", error->message);
         main_loop->quit();
     });

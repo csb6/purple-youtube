@@ -27,7 +27,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/signal.h>
 #include <peel/property.h>
 #include <memory>
-#include <functional>
 #include <expected>
 #include "youtube_types.hpp"
 #include "error_wrapper.hpp"
@@ -39,8 +38,6 @@ namespace youtube {
 class ChatClient final : public gobject::Object {
     PEEL_SIMPLE_CLASS(ChatClient, Object)
 public:
-    using ErrorCallback = std::function<void(glib::Error*)>;
-
     ~ChatClient() noexcept;
 
     void init(Class*);
@@ -49,7 +46,6 @@ public:
                                                       const char* access_token, const char* refresh_token,
                                                       peel::RefPtr<glib::DateTime> access_token_expiration);
 
-    void set_error_callback(ErrorCallback&&);
     std::expected<peel::String, ErrorPtr> generate_auth_url();
     Task<void> authorize();
     Task<void> connect_to_chat_async(const char* stream_url, gio::Cancellable*);
@@ -62,6 +58,7 @@ public:
     peel::RefPtr<glib::DateTime> get_access_token_expiration() const;
 
     PEEL_SIGNAL_CONNECT_METHOD(new_messages, sig_new_messages)
+    PEEL_SIGNAL_CONNECT_METHOD(error, sig_error);
     PEEL_SIGNAL_CONNECT_METHOD(access_token_changed, sig_access_token_changed)
     PEEL_SIGNAL_CONNECT_METHOD(refresh_token_changed, sig_refresh_token_changed)
     PEEL_SIGNAL_CONNECT_METHOD(access_token_expiration_changed, sig_access_token_expiration_changed)
@@ -72,6 +69,7 @@ private:
 
     // TODO: find way to pass std::ArrayRef<const ChatMessage> as a parameter
     inline static peel::Signal<ChatClient, void(void*)> sig_new_messages;
+    inline static peel::Signal<ChatClient, void(const glib::Error*)> sig_error;
     inline static peel::Signal<ChatClient, void(const char*)> sig_access_token_changed;
     inline static peel::Signal<ChatClient, void(const char*)> sig_refresh_token_changed;
     inline static peel::Signal<ChatClient, void(glib::DateTime*)> sig_access_token_expiration_changed;

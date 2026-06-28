@@ -92,21 +92,23 @@ peel::RefPtr<Connection> Connection::create(peel::RefPtr<purple::Account> accoun
         );
     }
 
-    // Setup callbacks/signals
+    // Setup signals
     ChatClient* client = connection->m_impl->client;
-    client->set_error_callback([](glib::Error* error) {
-        // TODO: is there a better way to log errors?
-        g_printerr("Error: %s\n", error->message);
-    });
-    client->connect_access_token_changed(
-        static_cast<Connection*>(connection), &Connection::on_access_token_changed);
-    client->connect_refresh_token_changed(
-        static_cast<Connection*>(connection), &Connection::on_refresh_token_changed);
+    auto* connection_ptr = static_cast<Connection*>(connection);
+    client->connect_error(connection_ptr, &Connection::on_client_error);
+    client->connect_access_token_changed(connection_ptr, &Connection::on_access_token_changed);
+    client->connect_refresh_token_changed(connection_ptr, &Connection::on_refresh_token_changed);
     client->connect_access_token_expiration_changed(
-        static_cast<Connection*>(connection), &Connection::on_access_token_expiration_changed);
-    client->connect_new_messages(static_cast<Connection*>(connection), &Connection::on_new_messages);
+        connection_ptr, &Connection::on_access_token_expiration_changed);
+    client->connect_new_messages(connection_ptr, &Connection::on_new_messages);
 
     return connection;
+}
+
+void Connection::on_client_error(ChatClient*, const glib::Error* error)
+{
+    // TODO: is there a better way to log errors?
+    g_warning("Error: %s\n", error->message);
 }
 
 void Connection::on_access_token_changed(ChatClient*, const char* access_token)

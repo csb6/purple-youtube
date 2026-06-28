@@ -138,7 +138,6 @@ private:
 PEEL_CLASS_IMPL(ChatClient, "YoutubeChatClient", gobject::Object)
 
 struct ChatClient::Impl {
-    void call_error_callback(glib::Error*);
     // Operations
     void schedule_access_token_refresh();
     Task<void> refresh_access_token_async(gio::Cancellable*);
@@ -151,7 +150,6 @@ struct ChatClient::Impl {
     peel::RefPtr<rest::OAuth2Proxy> proxy;
     peel::UniquePtr<rest::PkceCodeChallenge> pkce;
     peel::String state_str;
-    ErrorCallback error_callback;
     StreamInfo stream_info;
     bool is_authorized;
     EventSourceToken refresh_timer_source;
@@ -162,6 +160,7 @@ struct ChatClient::Impl {
 void ChatClient::Class::init()
 {
     sig_new_messages = decltype(sig_new_messages)::create("new-messages");
+    sig_error = decltype(sig_error)::create("error");
     sig_access_token_changed = decltype(sig_access_token_changed)::create("access-token-changed");
     sig_refresh_token_changed = decltype(sig_refresh_token_changed)::create("refresh-token-changed");
     sig_access_token_expiration_changed = decltype(sig_access_token_expiration_changed)::create("access-token-expiration-changed");
@@ -256,11 +255,6 @@ void ChatClient::on_access_token_expiration_changed(gobject::Object*, gobject::P
 {
     auto expiration = get_access_token_expiration();
     sig_access_token_expiration_changed.emit(this, expiration);
-}
-
-void ChatClient::set_error_callback(ErrorCallback&& callback)
-{
-    m_impl->error_callback = std::move(callback);
 }
 
 std::expected<peel::String, ErrorPtr> ChatClient::generate_auth_url()
@@ -537,7 +531,7 @@ Task<void> ChatClient::Impl::fetch_messages_async(peel::String next_page_token, 
         if(error) {
             // TODO: implement some kind of retry mechanism then give up
             // Note: will try again using the last known polling interval
-            call_error_callback(error);
+            sig_error.emit(this->client, error);
             co_return error;
         }
     }
@@ -545,7 +539,7 @@ Task<void> ChatClient::Impl::fetch_messages_async(peel::String next_page_token, 
     auto response_len = call->get_payload_length();
     auto messages_info = parse_chat_messages(peel::ArrayRef{response, (guint)response_len});
     if(!messages_info.has_value()) {
-        call_error_callback(messages_info.error().get());
+        sig_error.emit(this->client, messages_info.error().get());
         co_return std::move(messages_info.error());
     }
     if(!messages_info->messages.empty()) {
@@ -559,13 +553,6 @@ Task<void> ChatClient::Impl::fetch_messages_async(peel::String next_page_token, 
         fetch_messages_async(std::move(next_page_token), poll_interval).start();
     });
     co_return {};
-}
-
-void ChatClient::Impl::call_error_callback(glib::Error* error)
-{
-    if(this->error_callback) {
-        this->error_callback(error);
-    }
 }
 
 bool ChatClient::Impl::is_access_expired() const

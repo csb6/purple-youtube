@@ -53,6 +53,7 @@ public:
 private:
     struct Impl;
 
+    void on_client_error(ChatClient*, const glib::Error*);
     void on_access_token_changed(ChatClient*, const char*);
     void on_refresh_token_changed(ChatClient*, const char*);
     void on_access_token_expiration_changed(ChatClient*, glib::DateTime*);
