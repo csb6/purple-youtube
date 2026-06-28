@@ -17,6 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 #include "youtube_chat_protocol.hpp"
 #include <peel/Gio/Cancellable.h>
+#include <peel/Gio/NetworkMonitor.h>
 #include <peel/Gio/Task.h>
 #include <peel/Purple/Account.h>
 #include <peel/Purple/AccountSettingString.h>
@@ -61,6 +62,11 @@ peel::RefPtr<purple::AccountSettings> Protocol::vfunc_get_default_account_settin
     account_settings->add_setting(std::move(access_token_expiration));
 
     return account_settings;
+}
+
+bool Protocol::vfunc_can_connect(purple::Account*)
+{
+    return gio::NetworkMonitor::get_default()->get_network_available();
 }
 
 peel::RefPtr<purple::Connection> Protocol::vfunc_create_connection(
@@ -123,6 +129,17 @@ void Protocol::Class::init()
 {
     override_vfunc_create_connection<Protocol>();
     override_vfunc_get_default_account_settings<Protocol>();
+    auto* klass = reinterpret_cast<PurpleProtocolClass*>(this);
+    klass->can_connect_async = [](PurpleProtocol* protocol, PurpleAccount* account, GCancellable* cancellable,
+                                  GAsyncReadyCallback callback, gpointer data) {
+        auto* self = reinterpret_cast<youtube::Protocol*>(protocol);
+        auto* task = reinterpret_cast<gio::Task*>(g_task_new(protocol, cancellable, callback, data));
+        auto* _peel_account = reinterpret_cast<purple::Account*>(account);
+        task->return_boolean(self->vfunc_can_connect(_peel_account));
+    };
+    klass->can_connect_finish = [](PurpleProtocol*, GAsyncResult* result, GError** error) {
+        return g_task_propagate_boolean(G_TASK(result), error);
+    };
 }
 
 void Protocol::init_type(gobject::TypeModule* type_module, peel::Type type)

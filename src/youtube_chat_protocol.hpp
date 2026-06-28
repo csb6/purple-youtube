@@ -50,6 +50,7 @@ public:
     static peel::RefPtr<Protocol> create();
 
     peel::RefPtr<purple::AccountSettings> vfunc_get_default_account_settings();
+    bool vfunc_can_connect(purple::Account*);
     peel::RefPtr<purple::Connection> vfunc_create_connection(purple::Account*, peel::UniquePtr<glib::Error>*);
     peel::RefPtr<purple::ChannelJoinDetails> vfunc_get_channel_join_details(purple::Account*);
     Task<peel::RefPtr<purple::Conversation>> vfunc_join_channel_async(
