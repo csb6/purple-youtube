@@ -105,11 +105,9 @@ Task<peel::RefPtr<purple::Conversation>> Protocol::vfunc_join_channel_async(
 
 Task<void> Protocol::vfunc_leave_conversation_async(purple::Conversation* conversation, gio::Cancellable*)
 {
-    // TODO: might want to have client distinguish between a connection and a connected conversation
     auto* connection = static_cast<youtube::Connection*>(conversation->get_connection());
-    peel::UniquePtr<glib::Error> error;
-    connection->vfunc_disconnect("Left conversation", &error);
-    co_return error;
+    connection->leave_live_chat();
+    co_return {};
 }
 
 Task<void> Protocol::vfunc_send_message_async(

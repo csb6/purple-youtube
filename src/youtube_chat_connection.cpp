@@ -189,14 +189,22 @@ Task<void> Connection::vfunc_connect_async(gio::Cancellable* cancellable)
 
 bool Connection::vfunc_disconnect(const char*, peel::UniquePtr<glib::Error>*)
 {
+    m_impl->stream_url = nullptr;
     m_impl->client->disconnect();
     return true;
 }
 
 Task<void> Connection::join_live_chat_async(const char* stream_url, gio::Cancellable* cancellable)
 {
+    g_assert(!m_impl->stream_url);
     m_impl->stream_url = stream_url;
     return m_impl->client->connect_to_chat_async(stream_url, cancellable);
+}
+
+void Connection::leave_live_chat()
+{
+    m_impl->stream_url = nullptr;
+    m_impl->client->disconnect_chat();
 }
 
 Task<void> Connection::send_message_async(const char* message, gio::Cancellable* cancellable)
