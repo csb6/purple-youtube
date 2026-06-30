@@ -19,6 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/ArrayRef.h>
 #include <peel/Gio/Cancellable.h>
 #include <peel/Gio/Task.h>
+#include <peel/GLib/functions.h>
 #include <peel/Purple/AccountSettings.h>
 #include <peel/Purple/Contact.h>
 #include <peel/Purple/ContactManager.h>
@@ -27,11 +28,22 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/Purple/ConversationMembers.h>
 #include <peel/Purple/ConversationType.h>
 #include <peel/Purple/Core.h>
+#include <peel/Purple/CredentialManager.h>
 #include <peel/Purple/Message.h>
 #include <peel/Purple/Ui.h>
 #include <peel/GLib/DateTime.h>
+#include <span>
+#include <optional>
+#include <utility>
 #include "youtube_chat_client.hpp"
 #include "task.hpp"
+
+static
+peel::String encode_tokens(const char* access_token, const char* refresh_token);
+
+static
+std::optional<std::pair<peel::String, peel::String>>
+extract_access_and_refresh_tokens(const char* credentials);
 
 namespace youtube {
 
@@ -39,6 +51,7 @@ PEEL_CLASS_IMPL_DYNAMIC(Connection, "YoutubeConnection", purple::Connection)
 
 struct Connection::Impl {
     peel::RefPtr<ChatClient> client;
+    peel::RefPtr<gio::Cancellable> cancellable;
     peel::String stream_url;
 };
 
@@ -67,42 +80,17 @@ void Connection::Class::init()
 void Connection::init(Class*)
 {
     m_impl = std::make_unique<Impl>();
+    m_impl->cancellable = gio::Cancellable::create();
 }
 
 peel::RefPtr<Connection> Connection::create(peel::RefPtr<purple::Account> account)
 {
-    auto connection = Object::create<Connection>(prop_account(), std::move(account));
+    return Object::create<Connection>(prop_account(), std::move(account));
+}
 
-    // Yes, this is supposed to be here. This is a public client
-    const char* ci = "1060523451092-" "6uvnkq0u5t7knm4" "mept0rprfsia4vvnu.ap" "ps.go" "ogleuser" "conte" "nt.com";
-    const char* cs = "GOCSPX" "-W-BnhH8Lxb" "Hn_B9jjvVpu05" "GElXK";
-
-    auto* settings = connection->get_account()->get_settings();
-    const char* access_token = settings->get_string("access_token", "");
-    const char* refresh_token = settings->get_string("refresh_token", "");
-    const char* access_token_expiration_str = settings->get_string("access_token_expiration", "");
-    auto access_token_expiration = glib::DateTime::create_from_iso8601(access_token_expiration_str, nullptr);
-    if(strcmp(access_token, "") == 0 || strcmp(refresh_token, "") == 0 || !access_token_expiration) {
-        // Need to request an access token
-        connection->m_impl->client = ChatClient::create(ci, cs);
-    } else {
-        // Already have access and refresh tokens
-        connection->m_impl->client = ChatClient::create_authorized(
-            ci, cs, access_token, refresh_token, access_token_expiration
-        );
-    }
-
-    // Setup signals
-    ChatClient* client = connection->m_impl->client;
-    auto* connection_ptr = static_cast<Connection*>(connection);
-    client->connect_error(connection_ptr, &Connection::on_client_error);
-    client->connect_access_token_changed(connection_ptr, &Connection::on_access_token_changed);
-    client->connect_refresh_token_changed(connection_ptr, &Connection::on_refresh_token_changed);
-    client->connect_access_token_expiration_changed(
-        connection_ptr, &Connection::on_access_token_expiration_changed);
-    client->connect_new_messages(connection_ptr, &Connection::on_new_messages);
-
-    return connection;
+Connection::~Connection() noexcept
+{
+    m_impl->cancellable->cancel();
 }
 
 void Connection::on_client_error(ChatClient*, const glib::Error* error)
@@ -111,14 +99,24 @@ void Connection::on_client_error(ChatClient*, const glib::Error* error)
     g_warning("Error: %s\n", error->message);
 }
 
-void Connection::on_access_token_changed(ChatClient*, const char* access_token)
+void Connection::on_tokens_changed(ChatClient*, const char* access_token, const char* refresh_token)
 {
-    get_account()->get_settings()->set_string("access_token", access_token);
-}
-
-void Connection::on_refresh_token_changed(ChatClient*, const char* refresh_token)
-{
-    get_account()->get_settings()->set_string("refresh_token", refresh_token);
+    // May receive notifications for a token before the other is set; wait until they are both set
+    // to non-null values before doing anything
+    if(!access_token || !refresh_token) {
+        return;
+    }
+    [](Connection* self, peel::String credentials_base64) -> VoidTask {
+        auto* credential_manager = purple::Core::get_default()->get_credential_manager();
+        AsyncResult result;
+        peel::UniquePtr<glib::Error> error;
+        credential_manager->write_password_async(
+            self->get_account(), credentials_base64, self->m_impl->cancellable, result.callback());
+        credential_manager->write_password_finish(co_await result, &error);
+        if(error) {
+            g_warning("Failed to save credentials: %s", error->message);
+        }
+    }(this, encode_tokens(access_token, refresh_token)).start();
 }
 
 void Connection::on_access_token_expiration_changed(ChatClient*, glib::DateTime* expiration)
@@ -158,6 +156,47 @@ void Connection::on_new_messages(ChatClient*, void* data)
 Task<void> Connection::vfunc_connect_async(gio::Cancellable* cancellable)
 {
     auto* account = this->get_account();
+    auto* settings = account->get_settings();
+    if(!m_impl->client) {
+        auto* credential_manager = purple::Core::get_default()->get_credential_manager();
+        AsyncResult result;
+        peel::UniquePtr<glib::Error> error;
+
+        // Yes, this is supposed to be here. This is a public client
+        const char* ci = "1060523451092-" "6uvnkq0u5t7knm4" "mept0rprfsia4vvnu.ap" "ps.go" "ogleuser" "conte" "nt.com";
+        const char* cs = "GOCSPX" "-W-BnhH8Lxb" "Hn_B9jjvVpu05" "GElXK";
+
+        credential_manager->read_password_async(account, cancellable, result.callback());
+        auto credentials_str = credential_manager->read_password_finish(co_await result, &error);
+        if(error) {
+            co_return error;
+        }
+        const char* access_token_expiration_str = settings->get_string("access_token_expiration", "");
+        auto access_token_expiration = glib::DateTime::create_from_iso8601(access_token_expiration_str, nullptr);
+        if(credentials_str && access_token_expiration) {
+            // Use existing credentials
+            auto credentials = extract_access_and_refresh_tokens(credentials_str.c_str());
+            if(!credentials.has_value()) {
+                error = glib::Error::create(YOUTUBE_CHAT_ERROR, 1, "Invalid account credentials");
+                co_return error;
+            }
+            peel::String& access_token = credentials->first;
+            peel::String& refresh_token = credentials->second;
+            m_impl->client = ChatClient::create_authorized(
+                ci, cs, access_token.c_str(), refresh_token.c_str(), access_token_expiration);
+        } else {
+            // No existing credentials - will authorize in next step
+            m_impl->client = ChatClient::create(ci, cs);
+        }
+
+        // Setup signals
+        m_impl->client->connect_error(this, &Connection::on_client_error);
+        m_impl->client->connect_tokens_changed(this, &Connection::on_tokens_changed);
+        m_impl->client->connect_access_token_expiration_changed(
+             this, &Connection::on_access_token_expiration_changed);
+        m_impl->client->connect_new_messages(this, &Connection::on_new_messages);
+    }
+
     // Authorize client if needed
     if(!m_impl->client->is_authorized()) {
         peel::UniquePtr<glib::Error> error;
@@ -223,3 +262,43 @@ peel::String Connection::get_title()
 }
 
 } // namespace youtube
+
+static
+peel::String encode_tokens(const char* access_token, const char* refresh_token)
+{
+    auto access_token_base64 = glib::base64_encode(
+        peel::ArrayRef<const uint8_t>{(uint8_t*)access_token, strlen(access_token)}
+    );
+    auto refresh_token_base64 = glib::base64_encode(
+        peel::ArrayRef<const uint8_t>{(uint8_t*)refresh_token, strlen(refresh_token)}
+    );
+    return glib::strconcat(access_token_base64.c_str(), ":", refresh_token_base64.c_str());
+}
+
+static
+peel::String decode_base64(std::span<const uint8_t> base64_text)
+{
+    // +1 for null terminator
+    size_t out_buffer_len = (base64_text.size() / 4) * 3 + 3 + 1;
+    auto* out_buffer = (uint8_t*)g_malloc(out_buffer_len);
+    int state = 0;
+    unsigned save = 0;
+    glib::base64_decode_step(
+        peel::ArrayRef<const uint8_t>{&*base64_text.begin(), base64_text.size()}, out_buffer, &state, &save);
+    return peel::String::adopt_string((char*)out_buffer);
+}
+
+static
+std::optional<std::pair<peel::String, peel::String>>
+extract_access_and_refresh_tokens(const char* credentials)
+{
+    // TODO: add (begin, end) constructor to ArrayRef so no need for span
+    std::span<const uint8_t> credentials_view{(uint8_t*)credentials, strlen(credentials)};
+    auto delimiter = std::ranges::find(credentials_view, ':');
+    if(delimiter == credentials_view.end() || delimiter + 1 == credentials_view.end()) {
+        return {};
+    }
+    std::span<const uint8_t> access_token_base64{credentials_view.begin(), delimiter};
+    std::span<const uint8_t> refresh_token_base64{delimiter + 1, credentials_view.end()};
+    return std::make_pair(decode_base64(access_token_base64), decode_base64(refresh_token_base64));
+}

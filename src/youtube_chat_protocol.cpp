@@ -47,15 +47,6 @@ peel::RefPtr<purple::AccountSettings> Protocol::vfunc_get_default_account_settin
 {
     auto account_settings = purple::AccountSettings::create();
 
-    // TODO: should these be in CredentialManager??
-    auto access_token = purple::AccountSettingString::create("access_token", "OAuth Access Token", "");
-    access_token->set_advanced(true);
-    account_settings->add_setting(std::move(access_token));
-
-    auto refresh_token = purple::AccountSettingString::create("refresh_token", "OAuth Refresh Token", "");
-    refresh_token->set_advanced(true);
-    account_settings->add_setting(std::move(refresh_token));
-
     auto access_token_expiration = purple::AccountSettingString::create(
         "access_token_expiration", "OAuth Access Token Expiration", "");
     access_token_expiration->set_advanced(true);
@@ -72,6 +63,7 @@ bool Protocol::vfunc_can_connect(purple::Account*)
 peel::RefPtr<purple::Connection> Protocol::vfunc_create_connection(
     purple::Account* account, peel::UniquePtr<glib::Error>*)
 {
+    account->set_remember_password(true);
     return youtube::Connection::create(account);
 }
 

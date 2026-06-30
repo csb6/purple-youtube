@@ -42,6 +42,7 @@ class Connection final : public purple::Connection {
 public:
     void init(Class*);
     static peel::RefPtr<Connection> create(peel::RefPtr<purple::Account>);
+    ~Connection() noexcept;
 
     Task<void> vfunc_connect_async(gio::Cancellable*);
     bool vfunc_disconnect(const char* message, peel::UniquePtr<glib::Error>*);
@@ -55,8 +56,7 @@ private:
     struct Impl;
 
     void on_client_error(ChatClient*, const glib::Error*);
-    void on_access_token_changed(ChatClient*, const char*);
-    void on_refresh_token_changed(ChatClient*, const char*);
+    void on_tokens_changed(ChatClient*, const char* access_token, const char* refresh_token);
     void on_access_token_expiration_changed(ChatClient*, glib::DateTime*);
     void on_new_messages(ChatClient*, void* data);
 

@@ -60,19 +60,16 @@ public:
 
     PEEL_SIGNAL_CONNECT_METHOD(new_messages, sig_new_messages)
     PEEL_SIGNAL_CONNECT_METHOD(error, sig_error);
-    PEEL_SIGNAL_CONNECT_METHOD(access_token_changed, sig_access_token_changed)
-    PEEL_SIGNAL_CONNECT_METHOD(refresh_token_changed, sig_refresh_token_changed)
+    PEEL_SIGNAL_CONNECT_METHOD(tokens_changed, sig_tokens_changed)
     PEEL_SIGNAL_CONNECT_METHOD(access_token_expiration_changed, sig_access_token_expiration_changed)
 private:
-    void on_access_token_changed(gobject::Object*, gobject::ParamSpec*);
-    void on_refresh_token_changed(gobject::Object*, gobject::ParamSpec*);
+    void on_tokens_changed(gobject::Object*, gobject::ParamSpec*);
     void on_access_token_expiration_changed(gobject::Object*, gobject::ParamSpec*);
 
     // TODO: find way to pass std::ArrayRef<const ChatMessage> as a parameter
     inline static peel::Signal<ChatClient, void(void*)> sig_new_messages;
     inline static peel::Signal<ChatClient, void(const glib::Error*)> sig_error;
-    inline static peel::Signal<ChatClient, void(const char*)> sig_access_token_changed;
-    inline static peel::Signal<ChatClient, void(const char*)> sig_refresh_token_changed;
+    inline static peel::Signal<ChatClient, void(const char* access_token, const char* refresh_token)> sig_tokens_changed;
     inline static peel::Signal<ChatClient, void(glib::DateTime*)> sig_access_token_expiration_changed;
 
     struct Impl;

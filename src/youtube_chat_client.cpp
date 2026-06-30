@@ -119,8 +119,7 @@ void ChatClient::Class::init()
 {
     sig_new_messages = decltype(sig_new_messages)::create("new-messages");
     sig_error = decltype(sig_error)::create("error");
-    sig_access_token_changed = decltype(sig_access_token_changed)::create("access-token-changed");
-    sig_refresh_token_changed = decltype(sig_refresh_token_changed)::create("refresh-token-changed");
+    sig_tokens_changed = decltype(sig_tokens_changed)::create("tokens-changed");
     sig_access_token_expiration_changed = decltype(sig_access_token_expiration_changed)::create("access-token-expiration-changed");
 }
 
@@ -139,9 +138,9 @@ void ChatClient::init(Class*)
     m_impl->proxy->add_soup_feature(logger);
     #endif
     m_impl->proxy->connect_notify(rest::OAuth2Proxy::prop_access_token(),
-                                  this, &ChatClient::on_access_token_changed);
+                                  this, &ChatClient::on_tokens_changed);
     m_impl->proxy->connect_notify(rest::OAuth2Proxy::prop_refresh_token(),
-                                  this, &ChatClient::on_refresh_token_changed);
+                                  this, &ChatClient::on_tokens_changed);
     m_impl->proxy->connect_notify(rest::OAuth2Proxy::prop_expiration_date(),
                                   this, &ChatClient::on_access_token_expiration_changed);
     m_impl->refresh_cancel = gio::Cancellable::create();
@@ -200,14 +199,9 @@ peel::RefPtr<glib::DateTime> ChatClient::get_access_token_expiration() const
     return m_impl->proxy->get_expiration_date();
 }
 
-void ChatClient::on_access_token_changed(gobject::Object*, gobject::ParamSpec*)
+void ChatClient::on_tokens_changed(gobject::Object*, gobject::ParamSpec*)
 {
-    sig_access_token_changed.emit(this, get_access_token());
-}
-
-void ChatClient::on_refresh_token_changed(gobject::Object*, gobject::ParamSpec*)
-{
-    sig_refresh_token_changed.emit(this, get_refresh_token());
+    sig_tokens_changed.emit(this, get_access_token(), get_refresh_token());
 }
 
 void ChatClient::on_access_token_expiration_changed(gobject::Object*, gobject::ParamSpec*)
@@ -381,6 +375,8 @@ Task<void> ChatClient::connect_to_chat_async(const char* stream_url, gio::Cancel
     // Cache stream info
     m_impl->stream_info = std::move(*live_stream_info);
     g_assert(m_impl->stream_info.live_chat_id);
+    // Reset cancellable so periodic fetches can resume
+    m_impl->fetch_cancel = gio::Cancellable::create();
     m_impl->fetch_messages_async(nullptr, 5000).start(); // 5000 = Default poll interval
 
     co_return {};
