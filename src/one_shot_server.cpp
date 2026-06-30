@@ -68,8 +68,7 @@ void OneShotServer::Class::init()
 
 void OneShotServer::init(Class*)
 {
-    server = peel::RefPtr<soup::Server>::adopt_ref(reinterpret_cast<soup::Server*>(
-        soup_server_new("server-header", "PurpleYoutube", nullptr)));
+    server = soup::Server::create("server-header", "PurpleYT");
 }
 
 peel::RefPtr<OneShotServer> OneShotServer::create()
