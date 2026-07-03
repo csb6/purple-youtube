@@ -100,13 +100,16 @@ Task<peel::RefPtr<purple::Conversation>> Protocol::vfunc_join_channel_async(
     auto* conversation_manager = core->get_conversation_manager();
     auto channel_id = connection->get_channel_id();
     if(auto* conversation = conversation_manager->find(account, ConvType::CHANNEL, channel_id)) {
+        conversation->set_online(true);
         conversation->set_title(connection->get_title());
+        conversation->set_topic(stream_url);
         co_return conversation;
     }
 
     auto conversation = purple::Conversation::create(account, ConvType::CHANNEL, channel_id);
     conversation->set_online(true);
     conversation->set_title(connection->get_title());
+    conversation->set_topic(stream_url);
     // TODO: set contact info of this account's user in the conversation
     conversation_manager->add(conversation);
     co_return conversation;
