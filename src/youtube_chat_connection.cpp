@@ -246,14 +246,14 @@ bool Connection::vfunc_disconnect(const char*, peel::UniquePtr<glib::Error>*)
     return true;
 }
 
-Task<void> Connection::join_live_chat_async(const char* stream_url, gio::Cancellable* cancellable)
+Task<void> Connection::connect_to_chat_async(const char* stream_url, gio::Cancellable* cancellable)
 {
     g_assert(!m_impl->stream_url);
     m_impl->stream_url = stream_url;
     return m_impl->client->connect_to_chat_async(stream_url, cancellable);
 }
 
-void Connection::leave_live_chat()
+void Connection::disconnect_chat()
 {
     m_impl->stream_url = nullptr;
     m_impl->client->disconnect_chat();

@@ -93,7 +93,7 @@ Task<peel::RefPtr<purple::Conversation>> Protocol::vfunc_join_channel_async(
 
     auto* connection = static_cast<youtube::Connection*>(account->get_connection());
     auto* stream_url = channel_details->get_name();
-    auto error = co_await connection->join_live_chat_async(stream_url, cancellable);
+    auto error = co_await connection->connect_to_chat_async(stream_url, cancellable);
     if(error) {
         co_return std::unexpected(std::move(error));
     }
@@ -118,7 +118,7 @@ Task<peel::RefPtr<purple::Conversation>> Protocol::vfunc_join_channel_async(
 Task<void> Protocol::vfunc_leave_conversation_async(purple::Conversation* conversation, gio::Cancellable*)
 {
     auto* connection = static_cast<youtube::Connection*>(conversation->get_connection());
-    connection->leave_live_chat();
+    connection->disconnect_chat();
     co_return {};
 }
 
