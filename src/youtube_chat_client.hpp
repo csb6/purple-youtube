@@ -48,6 +48,7 @@ public:
 
     std::expected<peel::String, ErrorPtr> generate_auth_url();
     Task<void> authorize();
+    Task<peel::String> get_user_display_name(gio::Cancellable*);
     Task<void> connect_to_chat_async(const char* stream_url, gio::Cancellable*);
     void disconnect();
     void disconnect_chat();

@@ -95,6 +95,22 @@ std::expected<StreamInfo, ErrorPtr> parse_stream_info(peel::ArrayRef<const char>
     return StreamInfo{std::move(title), std::move(live_chat_id)};
 }
 
+std::expected<peel::String, ErrorPtr> parse_display_name(peel::ArrayRef<const char> response)
+{
+    auto root = parse_json(response);
+    if(!root.has_value()) {
+        return std::unexpected(std::move(root.error()));
+    }
+
+    // Note: Some channels may have legacy custom URLs that are not the same as their handles. The API
+    //  doesn't appear to expose this so not sure how we can handle it
+    auto display_name = match_json_string(*root, "$.items[*].snippet.customUrl");
+    if(!display_name) {
+        return std::unexpected(ErrorPtr(YOUTUBE_CHAT_ERROR, 1, "Missing channel handle"));
+    }
+    return display_name;
+}
+
 std::expected<ResponseInfo, ErrorPtr> parse_chat_messages(peel::ArrayRef<const char> response)
 {
     auto root = parse_json(response);

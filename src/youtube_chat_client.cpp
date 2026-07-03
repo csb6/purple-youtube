@@ -356,6 +356,39 @@ Task<void> ChatClient::Impl::refresh_access_token_async(gio::Cancellable* cancel
     co_return error;
 }
 
+Task<peel::String> ChatClient::get_user_display_name(gio::Cancellable* cancellable)
+{
+    g_assert(m_impl->is_authorized);
+    if(m_impl->is_access_expired()) {
+        // Note: use passed in cancellable instead of m_impl->cancellable since this is a one-off
+        //   operation and not a periodic operation
+        auto error = co_await m_impl->refresh_access_token_async(cancellable);
+        if(error) {
+            co_return std::unexpected(std::move(error));
+        }
+    }
+
+    auto call = m_impl->proxy->new_call();
+    call->set_function("channels");
+    call->add_param("part", "snippet");
+    call->add_param("mine", "true");
+    call->add_param("maxResults", "1");
+
+    AsyncResult result;
+    peel::UniquePtr<glib::Error> error;
+    // Note: use passed in cancellable instead of m_impl->cancellable since this is a one-off
+    //   operation and not a periodic operation
+    call->invoke_async(cancellable, result.callback());
+    call->invoke_finish(co_await result, &error);
+    if(error) {
+        co_return std::unexpected(std::move(error));
+    }
+
+    const char* response = call->get_payload();
+    auto response_len = call->get_payload_length();
+    co_return parse_display_name(peel::ArrayRef{response, (guint)response_len});
+}
+
 Task<void> ChatClient::connect_to_chat_async(const char* stream_url, gio::Cancellable* cancellable)
 {
     g_assert(m_impl->is_authorized);
@@ -432,11 +465,7 @@ Task<StreamInfo> ChatClient::Impl::get_live_stream_info_async(peel::String video
     }
     const char* response = call->get_payload();
     auto response_len = call->get_payload_length();
-    auto stream_info = parse_stream_info(peel::ArrayRef{response, (guint)response_len});
-    if(!stream_info.has_value()) {
-        co_return std::unexpected(std::move(stream_info.error()));
-    }
-    co_return std::move(stream_info.value());
+    co_return parse_stream_info(peel::ArrayRef{response, (guint)response_len});
 }
 
 Task<void> ChatClient::send_message_async(const char* message, gio::Cancellable* cancellable)

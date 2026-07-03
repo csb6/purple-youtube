@@ -25,6 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/Purple/Badges.h>
 #include <peel/Purple/BadgeManager.h>
 #include <peel/Purple/Contact.h>
+#include <peel/Purple/ContactInfo.h>
 #include <peel/Purple/ContactManager.h>
 #include <peel/Purple/Conversation.h>
 #include <peel/Purple/ConversationManager.h>
@@ -229,6 +230,13 @@ Task<void> Connection::vfunc_connect_async(gio::Cancellable* cancellable)
             co_return error_ptr;
         }
     }
+
+    auto display_name = co_await m_impl->client->get_user_display_name(cancellable);
+    if(!display_name.has_value()) {
+        account->disconnect_with_error("Failed to get account display name", display_name.error().get());
+        co_return std::move(display_name.error());
+    }
+    account->get_contact_info()->set_display_name(std::move(*display_name));
 
     account->ready();
     co_return {};
