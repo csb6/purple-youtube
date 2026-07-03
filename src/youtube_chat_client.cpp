@@ -474,8 +474,10 @@ Task<void> ChatClient::Impl::fetch_messages_async(peel::String next_page_token, 
     auto call = this->proxy->new_call();
     call->add_param("liveChatId", this->stream_info.live_chat_id);
     call->add_param("part", "snippet,authorDetails");
-    call->add_param("fields", "nextPageToken,pollingIntervalMillis,items(id,authorDetails(channelId,displayName),"
-                              "snippet(type,publishedAt,displayMessage))");
+    call->add_param("fields", "nextPageToken,pollingIntervalMillis,"
+                              "items(id,authorDetails(channelId,displayName,isChatModerator),"
+                              "snippet(type,publishedAt,displayMessage,"
+                                "userBannedDetails(banType,bannedUserDetails(channelId,displayName))))");
     if(next_page_token) {
         // Only request messages we haven't seen before
         call->add_param("pageToken", next_page_token);

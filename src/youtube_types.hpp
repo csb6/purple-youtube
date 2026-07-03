@@ -32,10 +32,15 @@ struct StreamInfo {
 };
 
 struct ChatMessage {
+    enum class Type {
+        Text, Super, Ban
+    };
     peel::String channel_id;
     peel::String display_name;
     peel::RefPtr<glib::DateTime> timestamp;
     peel::String content;
+    Type type;
+    bool is_moderator;
 };
 
 } // namespace youtube

@@ -21,10 +21,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/Gio/Task.h>
 #include <peel/GLib/functions.h>
 #include <peel/Purple/AccountSettings.h>
+#include <peel/Purple/Badge.h>
+#include <peel/Purple/Badges.h>
+#include <peel/Purple/BadgeManager.h>
 #include <peel/Purple/Contact.h>
 #include <peel/Purple/ContactManager.h>
 #include <peel/Purple/Conversation.h>
 #include <peel/Purple/ConversationManager.h>
+#include <peel/Purple/ConversationMember.h>
 #include <peel/Purple/ConversationMembers.h>
 #include <peel/Purple/ConversationType.h>
 #include <peel/Purple/Core.h>
@@ -132,6 +136,7 @@ void Connection::on_new_messages(ChatClient*, void* data)
     auto* core = purple::Core::get_default();
     auto* contact_manager = core->get_contact_manager();
     auto* conversation_manager = core->get_conversation_manager();
+    auto* badge_manager = core->get_badge_manager();
     auto* messages = static_cast<peel::ArrayRef<const youtube::ChatMessage>*>(data);
     // TODO: can technically avoid re-fetching/resetting display_name property since not likely to
     //  change during course of a chat
@@ -147,8 +152,16 @@ void Connection::on_new_messages(ChatClient*, void* data)
 
         auto author = conversation->get_members()->find_or_add_member(
             contact, /*announce=*/false, /*message=*/"");
+        if(message.is_moderator) {
+            author->get_badges()->add_badge(badge_manager->find("moderator"));
+        }
         auto purple_msg = purple::Message::create(author, message.content.c_str());
         purple_msg->set_timestamp(message.timestamp);
+        if(message.type == ChatMessage::Type::Ban) {
+            purple_msg->set_event(true);
+        } else if(message.type == ChatMessage::Type::Super) {
+            purple_msg->set_highlighted(true);
+        }
         conversation->write_message(purple_msg);
     }
 }

@@ -21,6 +21,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/Gio/Task.h>
 #include <peel/Purple/Account.h>
 #include <peel/Purple/AccountSettingString.h>
+#include <peel/Purple/Badge.h>
+#include <peel/Purple/Badges.h>
+#include <peel/Purple/BadgeManager.h>
 #include <peel/Purple/ConversationManager.h>
 #include <peel/Purple/ConversationType.h>
 #include <peel/Purple/Core.h>
@@ -80,13 +83,21 @@ Task<peel::RefPtr<purple::Conversation>> Protocol::vfunc_join_channel_async(
 {
     using ConvType = purple::ConversationType;
 
+    // Add moderator badge if there isn't one already
+    auto* core = purple::Core::get_default();
+    auto* badge_manager = core->get_badge_manager();
+    if(auto* mod_badge = badge_manager->find("moderator"); !mod_badge) {
+        auto badge_ptr = purple::Badge::create("moderator", 1, "pidgin-status-operator", "M");
+        badge_manager->add(badge_ptr);
+    }
+
     auto* connection = static_cast<youtube::Connection*>(account->get_connection());
     auto* stream_url = channel_details->get_name();
     auto error = co_await connection->join_live_chat_async(stream_url, cancellable);
     if(error) {
         co_return std::unexpected(std::move(error));
     }
-    auto* conversation_manager = purple::Core::get_default()->get_conversation_manager();
+    auto* conversation_manager = core->get_conversation_manager();
     auto channel_id = connection->get_channel_id();
     if(auto* conversation = conversation_manager->find(account, ConvType::CHANNEL, channel_id)) {
         conversation->set_title(connection->get_title());
@@ -96,6 +107,7 @@ Task<peel::RefPtr<purple::Conversation>> Protocol::vfunc_join_channel_async(
     auto conversation = purple::Conversation::create(account, ConvType::CHANNEL, channel_id);
     conversation->set_online(true);
     conversation->set_title(connection->get_title());
+    // TODO: set contact info of this account's user in the conversation
     conversation_manager->add(conversation);
     co_return conversation;
 }
