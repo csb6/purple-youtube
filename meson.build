@@ -1,4 +1,4 @@
-project('youtube-chat-client', 'c', 'cpp',
+project('birdtube', 'c', 'cpp',
         default_options: ['c_std=c99', 'warning_level=2', 'cpp_std=c++23'],
         meson_version: '>=1.2.0')
 
@@ -32,14 +32,14 @@ peel_codegen = custom_target('peel-codegen',
   input: 'src/api-tweaks.txt',
   output: ['peel'],
   env: {
-    'GI_GIR_PATH': 'subprojects/rest-1.0/rest:/usr/lib/x86_64-linux-gnu/gir-1.0:/app/3rd-party/PurpleYoutube/share/gir-1.0'
+    'GI_GIR_PATH': 'subprojects/rest-1.0/rest:/usr/lib/x86_64-linux-gnu/gir-1.0:/app/3rd-party/BirdTube/share/gir-1.0'
   },
   depends: [librest_gir],
 )
 
 plugin_install_dir = get_option('prefix') / get_option('libdir') / 'purple-3'
 
-purple_youtube = shared_library('purple-youtube', [
+birdtube = shared_library('birdtube', [
     'src/youtube_chat_plugin.cpp',
     'src/youtube_chat_protocol.cpp',
     'src/youtube_chat_connection.cpp',
@@ -60,5 +60,5 @@ executable('yt-chat-demo', [
     ],
     dependencies: [gobject, peel],
     include_directories: ['src'],
-    link_with: [purple_youtube]
+    link_with: [birdtube]
 )

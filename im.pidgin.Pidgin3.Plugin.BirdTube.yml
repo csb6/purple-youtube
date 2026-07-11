@@ -1,4 +1,4 @@
-id: im.pidgin.Purple3.Plugin.PurpleYoutube
+id: im.pidgin.Purple3.Plugin.BirdTube
 runtime: im.pidgin.Pidgin3
 runtime-version: default
 branch: default
@@ -6,9 +6,9 @@ sdk: org.gnome.Sdk//50
 separate-locales: false
 build-extension: true
 build-options:
-  prefix: /app/3rd-party/PurpleYoutube
+  prefix: /app/3rd-party/BirdTube
 modules:
-  - name: purple-youtube
+  - name: birdtube
     buildsystem: meson
     sources:
       - type: dir

@@ -1,5 +1,5 @@
 /*
-purple-youtube
+BirdTube - YouTube live chat protocol plugin
 Copyright (C) 2026 Cole Blakley
 
 This program is free software: you can redistribute it and/or modify

@@ -1,5 +1,5 @@
 /*
-purple-youtube
+BirdTube - YouTube live chat protocol plugin
 Copyright (C) 2026 Cole Blakley
 
 This program is free software: you can redistribute it and/or modify
@@ -281,10 +281,10 @@ Task<void> ChatClient::authorize()
         "<!DOCTYPE html>"
         "<html lang=\"en\">"
           "<head>"
-            "<title>Purple-YT - Authorization Successful</title>"
+            "<title>BirdTube - Authorization Successful</title>"
           "</head>"
           "<body>"
-            "<p>Successfully authorized Purple-YT! You can close this tab.</p>"
+            "<p>Successfully authorized BirdTube! You can close this tab.</p>"
           "</body>"
         "</html>";
 
@@ -622,10 +622,10 @@ peel::String build_server_error_response(const char* error_str)
         "<!DOCTYPE html>"
         "<html lang=\"en\">"
           "<head>"
-            "<title>Purple-YT - Error</title>"
+            "<title>BirdTube - Error</title>"
           "</head>"
           "<body>"
-            "<p>Failed to grant permissions to Purple-YT:</p>"
+            "<p>Failed to grant permissions to BirdTube:</p>"
             "<p>%s</p>"
           "</body>"
         "</html>";
