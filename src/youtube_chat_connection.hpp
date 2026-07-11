@@ -47,19 +47,18 @@ public:
     Task<void> vfunc_connect_async(gio::Cancellable*);
     Task<void> vfunc_disconnect_async(const char* message, gio::Cancellable*);
     Task<void> connect_to_chat_async(const char* stream_url, gio::Cancellable*);
-    void disconnect_chat();
-    Task<void> send_message_async(const char* message, gio::Cancellable*);
+    void disconnect_chat(const char* stream_url);
+    Task<void> send_message_async(const char* stream_url, const char* message, gio::Cancellable*);
 
-    peel::String get_channel_id();
-    peel::String get_title();
-    bool is_connected_to_chat();
+    peel::String get_title(const char* stream_url);
+    bool is_chat_connected(const char* stream_url);
 private:
     struct Impl;
 
     void on_client_error(ChatClient*, const glib::Error*);
     void on_tokens_changed(ChatClient*, const char* access_token, const char* refresh_token);
     void on_access_token_expiration_changed(ChatClient*, glib::DateTime*);
-    void on_new_messages(ChatClient*, void* data);
+    void on_new_messages(ChatClient*, const char* stream_url, void* data);
 
     std::unique_ptr<Impl> m_impl;
 };

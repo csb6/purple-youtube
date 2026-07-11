@@ -57,7 +57,6 @@ PEEL_CLASS_IMPL_DYNAMIC(Connection, "YoutubeConnection", purple::Connection)
 struct Connection::Impl {
     peel::RefPtr<ChatClient> client;
     peel::RefPtr<gio::Cancellable> cancellable;
-    peel::String stream_url;
 };
 
 void Connection::init(Class*)
@@ -102,7 +101,7 @@ void Connection::on_access_token_expiration_changed(ChatClient*, glib::DateTime*
     get_account()->get_settings()->set_string("access_token_expiration", expiration->format_iso8601());
 }
 
-void Connection::on_new_messages(ChatClient*, void* data)
+void Connection::on_new_messages(ChatClient*, const char* stream_url, void* data)
 {
     using ConvType = purple::ConversationType;
 
@@ -114,10 +113,9 @@ void Connection::on_new_messages(ChatClient*, void* data)
     auto* messages = static_cast<peel::ArrayRef<const youtube::ChatMessage>*>(data);
     // TODO: can technically avoid re-fetching/resetting display_name property since not likely to
     //  change during course of a chat
-    peel::RefPtr conversation = conversation_manager->find(
-        account, ConvType::CHANNEL, get_channel_id().c_str());
+    peel::RefPtr conversation = conversation_manager->find(account, ConvType::CHANNEL, stream_url);
     if(!conversation) {
-        g_warning("Conversation doesn't exist for stream: %s", get_channel_id().c_str());
+        g_warning("Conversation doesn't exist for stream: %s", stream_url);
         return;
     }
     for(const auto& message : *messages) {
@@ -222,42 +220,33 @@ Task<void> Connection::vfunc_connect_async(gio::Cancellable* cancellable)
 
 Task<void> Connection::vfunc_disconnect_async(const char*, gio::Cancellable*)
 {
-    m_impl->stream_url = nullptr;
     m_impl->client->disconnect();
     co_return {};
 }
 
 Task<void> Connection::connect_to_chat_async(const char* stream_url, gio::Cancellable* cancellable)
 {
-    g_assert(!m_impl->stream_url);
-    m_impl->stream_url = stream_url;
     return m_impl->client->connect_to_chat_async(stream_url, cancellable);
 }
 
-void Connection::disconnect_chat()
+void Connection::disconnect_chat(const char* stream_url)
 {
-    m_impl->stream_url = nullptr;
-    m_impl->client->disconnect_chat();
+    m_impl->client->disconnect_chat(stream_url);
 }
 
-Task<void> Connection::send_message_async(const char* message, gio::Cancellable* cancellable)
+Task<void> Connection::send_message_async(const char* stream_url, const char* message, gio::Cancellable* cancellable)
 {
-    return m_impl->client->send_message_async(message, cancellable);
+    return m_impl->client->send_message_async(stream_url, message, cancellable);
 }
 
-peel::String Connection::get_channel_id()
+peel::String Connection::get_title(const char* stream_url)
 {
-    return m_impl->stream_url;
+    return m_impl->client->get_title(stream_url);
 }
 
-peel::String Connection::get_title()
+bool Connection::is_chat_connected(const char* stream_url)
 {
-    return m_impl->client->get_title();
-}
-
-bool Connection::is_connected_to_chat()
-{
-    return m_impl->client->is_connected_to_chat();
+    return m_impl->client->is_chat_connected(stream_url);
 }
 
 void Connection::Class::init()

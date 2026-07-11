@@ -28,6 +28,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/property.h>
 #include <memory>
 #include <expected>
+#include <string>
 #include "youtube_types.hpp"
 #include "error_wrapper.hpp"
 #include "task.hpp"
@@ -49,13 +50,13 @@ public:
     std::expected<peel::String, ErrorPtr> generate_auth_url();
     Task<void> authorize();
     Task<peel::String> get_user_display_name(gio::Cancellable*);
-    Task<void> connect_to_chat_async(const char* stream_url, gio::Cancellable*);
+    Task<void> connect_to_chat_async(std::string stream_url, gio::Cancellable*);
     void disconnect();
-    void disconnect_chat();
-    Task<void> send_message_async(const char* message, gio::Cancellable*);
+    void disconnect_chat(const char* stream_url);
+    Task<void> send_message_async(std::string stream_url, const char* message, gio::Cancellable*);
     bool is_authorized() const;
-    bool is_connected_to_chat() const;
-    const char* get_title() const;
+    bool is_chat_connected(const char* stream_url) const;
+    const char* get_title(const char* stream_url) const;
     peel::String get_access_token() const;
     peel::String get_refresh_token() const;
     peel::RefPtr<glib::DateTime> get_access_token_expiration() const;
@@ -69,7 +70,7 @@ private:
     void on_access_token_expiration_changed(gobject::Object*, gobject::ParamSpec*);
 
     // TODO: find way to pass std::ArrayRef<const ChatMessage> as a parameter
-    inline static peel::Signal<ChatClient, void(void*)> sig_new_messages;
+    inline static peel::Signal<ChatClient, void(const char* stream_url, void*)> sig_new_messages;
     inline static peel::Signal<ChatClient, void(const glib::Error*)> sig_error;
     inline static peel::Signal<ChatClient, void(const char* access_token, const char* refresh_token)> sig_tokens_changed;
     inline static peel::Signal<ChatClient, void(glib::DateTime*)> sig_access_token_expiration_changed;

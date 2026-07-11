@@ -16,6 +16,9 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 #include "youtube_chat_client.hpp"
+#include <algorithm>
+#include <string>
+#include <unordered_map>
 #include <peel/Rest/OAuth2Proxy.h>
 #include <peel/Rest/OAuth2ProxyCall.h>
 #include <peel/Rest/PkceCodeChallenge.h>
@@ -86,6 +89,30 @@ namespace youtube {
 #define REDIRECT_PORT 43215
 #define STATE_STR_LEN 16
 
+struct Conversation {
+    Conversation(StreamInfo stream_info)
+        : stream_info(std::move(stream_info)), fetch_cancel(gio::Cancellable::create())
+    {}
+    Conversation(const Conversation&) = delete;
+    Conversation(Conversation&&) noexcept = default;
+    ~Conversation() noexcept
+    {
+        disconnect();
+    }
+    Conversation& operator=(const Conversation&) = delete;
+    Conversation& operator=(Conversation&&) noexcept = default;
+
+    void disconnect()
+    {
+        this->fetch_messages_source.disconnect();
+        this->fetch_cancel->cancel();
+    }
+
+    StreamInfo stream_info;
+    peel::RefPtr<gio::Cancellable> fetch_cancel;
+    EventSourceToken fetch_messages_source;
+};
+
 static
 peel::String build_server_error_response(const char* error_str);
 
@@ -95,11 +122,14 @@ std::expected<peel::String, ErrorPtr> get_random_string();
 PEEL_CLASS_IMPL(ChatClient, "YoutubeChatClient", gobject::Object)
 
 struct ChatClient::Impl {
+    using ConversationIterator = std::unordered_map<std::string, Conversation>::iterator;
+
     // Operations
     void schedule_access_token_refresh();
     Task<void> refresh_access_token_async(gio::Cancellable*);
     Task<StreamInfo> get_live_stream_info_async(peel::String video_id, gio::Cancellable*);
-    Task<void> fetch_messages_async(peel::String next_page_token, guint poll_interval);
+    Task<void> fetch_messages_async(
+        ConversationIterator, guint poll_interval, peel::String next_page_token = nullptr);
 
     bool is_access_expired() const;
 
@@ -107,12 +137,10 @@ struct ChatClient::Impl {
     peel::RefPtr<rest::OAuth2Proxy> proxy;
     peel::UniquePtr<rest::PkceCodeChallenge> pkce;
     peel::String state_str;
-    StreamInfo stream_info;
     bool is_authorized;
     EventSourceToken refresh_timer_source;
-    EventSourceToken fetch_messages_source;
     peel::RefPtr<gio::Cancellable> refresh_cancel;
-    peel::RefPtr<gio::Cancellable> fetch_cancel;
+    std::unordered_map<std::string, Conversation> conversations;
 };
 
 void ChatClient::Class::init()
@@ -144,7 +172,6 @@ void ChatClient::init(Class*)
     m_impl->proxy->connect_notify(rest::OAuth2Proxy::prop_expiration_date(),
                                   this, &ChatClient::on_access_token_expiration_changed);
     m_impl->refresh_cancel = gio::Cancellable::create();
-    m_impl->fetch_cancel = gio::Cancellable::create();
 }
 
 peel::RefPtr<ChatClient> ChatClient::create(const char* client_id, const char* client_secret)
@@ -179,14 +206,19 @@ bool ChatClient::is_authorized() const
     return m_impl->is_authorized;
 }
 
-bool ChatClient::is_connected_to_chat() const
+bool ChatClient::is_chat_connected(const char* stream_url) const
 {
-    return m_impl->stream_info.live_chat_id;
+    return m_impl->conversations.find(stream_url) != m_impl->conversations.end();
 }
 
-const char* ChatClient::get_title() const
+const char* ChatClient::get_title(const char* stream_url) const
 {
-    return m_impl->stream_info.title;
+    auto conversation = m_impl->conversations.find(stream_url);
+    if(conversation == m_impl->conversations.end()) {
+        g_warning("Unknown conversation: %s", stream_url);
+        return "";
+    }
+    return conversation->second.stream_info.title;
 }
 
 peel::String ChatClient::get_access_token() const
@@ -394,7 +426,10 @@ Task<peel::String> ChatClient::get_user_display_name(gio::Cancellable* cancellab
     co_return parse_display_name(peel::ArrayRef{response, (guint)response_len});
 }
 
-Task<void> ChatClient::connect_to_chat_async(const char* stream_url, gio::Cancellable* cancellable)
+// TODO: check where stream_url needs to persist across suspension points - save it into an owning
+//  variable where needed (wrapper functions around Task can just forward it so can save some
+//  copies)
+Task<void> ChatClient::connect_to_chat_async(std::string stream_url, gio::Cancellable* cancellable)
 {
     g_assert(m_impl->is_authorized);
     if(m_impl->is_access_expired()) {
@@ -406,7 +441,13 @@ Task<void> ChatClient::connect_to_chat_async(const char* stream_url, gio::Cancel
         }
     }
 
-    auto video_id = extract_video_id(stream_url);
+    if(auto conversation = m_impl->conversations.find(stream_url);
+       conversation != m_impl->conversations.end()) {
+        g_warning("Already connected to: %s", stream_url.c_str());
+        co_return {};
+    }
+
+    auto video_id = extract_video_id(stream_url.c_str());
     if(!video_id.has_value()) {
         co_return std::move(video_id.error());
     }
@@ -416,29 +457,29 @@ Task<void> ChatClient::connect_to_chat_async(const char* stream_url, gio::Cancel
     if(!live_stream_info.has_value()) {
         co_return std::move(live_stream_info.error());
     }
-    // Cache stream info
-    m_impl->stream_info = std::move(*live_stream_info);
-    g_assert(m_impl->stream_info.live_chat_id);
-    // Reset cancellable so periodic fetches can resume
-    m_impl->fetch_cancel = gio::Cancellable::create();
-    m_impl->fetch_messages_async(nullptr, 5000).start(); // 5000 = Default poll interval
+    // Add the conversation to the set of active converations
+    auto[conversation, _] = m_impl->conversations.emplace(std::move(stream_url), std::move(*live_stream_info));
+    m_impl->fetch_messages_async(conversation, 5000).start(); // 5000 = Default poll interval
 
     co_return {};
 }
 
 void ChatClient::disconnect()
 {
-    disconnect_chat();
+    m_impl->conversations.clear();
     m_impl->refresh_timer_source.disconnect();
     m_impl->refresh_cancel->cancel();
     m_impl->is_authorized = false;
 }
 
-void ChatClient::disconnect_chat()
+void ChatClient::disconnect_chat(const char* stream_url)
 {
-    m_impl->fetch_messages_source.disconnect();
-    m_impl->fetch_cancel->cancel();
-    m_impl->stream_info = {};
+    auto conversation = m_impl->conversations.find(stream_url);
+    if(conversation == m_impl->conversations.end()) {
+        g_warning("Unknown conversation: %s", stream_url);
+        return;
+    }
+    m_impl->conversations.erase(conversation);
 }
 
 Task<StreamInfo> ChatClient::Impl::get_live_stream_info_async(peel::String video_id, gio::Cancellable* cancellable)
@@ -474,7 +515,7 @@ Task<StreamInfo> ChatClient::Impl::get_live_stream_info_async(peel::String video
     co_return parse_stream_info(peel::ArrayRef{response, (guint)response_len});
 }
 
-Task<void> ChatClient::send_message_async(const char* message, gio::Cancellable* cancellable)
+Task<void> ChatClient::send_message_async(std::string stream_url, const char* message, gio::Cancellable* cancellable)
 {
     g_assert(m_impl->is_authorized);
     if(m_impl->is_access_expired()) {
@@ -486,7 +527,13 @@ Task<void> ChatClient::send_message_async(const char* message, gio::Cancellable*
         }
     }
 
-    auto message_json_str = create_text_message(m_impl->stream_info.live_chat_id, message);
+    auto conversation = m_impl->conversations.find(stream_url);
+    if(conversation == m_impl->conversations.end()) {
+        g_warning("Unknown conversation: %s", stream_url.c_str());
+        co_return {};
+    }
+
+    auto message_json_str = create_text_message(conversation->second.stream_info.live_chat_id, message);
     auto call = JsonSnippetPoster::create(m_impl->proxy, std::move(message_json_str));
     call->set_function("liveChat/messages");
 
@@ -499,21 +546,24 @@ Task<void> ChatClient::send_message_async(const char* message, gio::Cancellable*
     co_return error;
 }
 
-Task<void> ChatClient::Impl::fetch_messages_async(peel::String next_page_token, guint poll_interval)
+Task<void> ChatClient::Impl::fetch_messages_async(
+    ConversationIterator iter, guint poll_interval, peel::String next_page_token)
 {
     g_assert(this->is_authorized);
 
-    this->fetch_messages_source.disconnect();
+    auto& stream_url = iter->first;
+    Conversation& conversation = iter->second;
+    conversation.fetch_messages_source.disconnect();
 
     if(this->is_access_expired()) {
-        auto error = co_await this->refresh_access_token_async(this->fetch_cancel);
+        auto error = co_await this->refresh_access_token_async(conversation.fetch_cancel);
         if(error) {
             co_return error;
         }
     }
 
     auto call = this->proxy->new_call();
-    call->add_param("liveChatId", this->stream_info.live_chat_id);
+    call->add_param("liveChatId", conversation.stream_info.live_chat_id);
     call->add_param("part", "snippet,authorDetails");
     call->add_param("fields", "nextPageToken,pollingIntervalMillis,"
                               "items(id,authorDetails(channelId,displayName,isChatModerator),"
@@ -529,7 +579,7 @@ Task<void> ChatClient::Impl::fetch_messages_async(peel::String next_page_token, 
         AsyncResult result;
         peel::UniquePtr<glib::Error> error;
         g_print("Poll interval: %u\n", poll_interval);
-        call->invoke_async(this->fetch_cancel, result.callback());
+        call->invoke_async(conversation.fetch_cancel, result.callback());
         call->invoke_finish(co_await result, &error);
         if(error) {
             // TODO: implement some kind of retry mechanism then give up
@@ -548,12 +598,12 @@ Task<void> ChatClient::Impl::fetch_messages_async(peel::String next_page_token, 
     if(!messages_info->messages.empty()) {
         // Notify all listeners that a new batch of messages has been received
         peel::ArrayRef<const ChatMessage> messages_span{messages_info->messages.data(), messages_info->messages.size()};
-        sig_new_messages.emit(this->client, (void*)&messages_span);
+        sig_new_messages.emit(this->client, stream_url.c_str(), (void*)&messages_span);
     }
-    this->fetch_messages_source = glib::timeout_add_once(messages_info->poll_interval,
-        [this, next_page_token = std::move(messages_info->next_page_token),
+    conversation.fetch_messages_source = glib::timeout_add_once(messages_info->poll_interval,
+        [this, iter, next_page_token = std::move(messages_info->next_page_token),
          poll_interval = messages_info->poll_interval] {
-        fetch_messages_async(std::move(next_page_token), poll_interval).start();
+        fetch_messages_async(iter, poll_interval, std::move(next_page_token)).start();
     });
     co_return {};
 }

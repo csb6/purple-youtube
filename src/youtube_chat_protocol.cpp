@@ -98,18 +98,17 @@ Task<peel::RefPtr<purple::Conversation>> Protocol::vfunc_join_channel_async(
         co_return std::unexpected(std::move(error));
     }
     auto* conversation_manager = core->get_conversation_manager();
-    auto channel_id = connection->get_channel_id();
-    if(auto* conversation = conversation_manager->find(account, ConvType::CHANNEL, channel_id)) {
+    if(auto* conversation = conversation_manager->find(account, ConvType::CHANNEL, stream_url)) {
         // These fields might have changed since we last joined this channel, so refresh them
         conversation->set_online(true);
-        conversation->set_title(connection->get_title());
+        conversation->set_title(connection->get_title(stream_url));
         conversation->set_topic(stream_url);
         co_return conversation;
     }
 
-    auto conversation = purple::Conversation::create(account, ConvType::CHANNEL, channel_id);
+    auto conversation = purple::Conversation::create(account, ConvType::CHANNEL, stream_url);
     conversation->set_online(true);
-    conversation->set_title(connection->get_title());
+    conversation->set_title(connection->get_title(stream_url));
     conversation->set_topic(stream_url);
     // TODO: set contact info of this account's user in the conversation
     conversation_manager->add(conversation);
@@ -119,7 +118,7 @@ Task<peel::RefPtr<purple::Conversation>> Protocol::vfunc_join_channel_async(
 Task<void> Protocol::vfunc_leave_conversation_async(purple::Conversation* conversation, gio::Cancellable*)
 {
     auto* connection = static_cast<youtube::Connection*>(conversation->get_connection());
-    connection->disconnect_chat();
+    connection->disconnect_chat(conversation->get_topic());
     co_return {};
 }
 
@@ -128,14 +127,15 @@ Task<void> Protocol::vfunc_send_message_async(
 {
     auto* connection = static_cast<youtube::Connection*>(conversation->get_connection());
     // TODO: eventually need to stringify the message contents better
-    auto error = co_await connection->send_message_async(message->get_contents(), cancellable);
+    auto error = co_await connection->send_message_async(
+        conversation->get_topic(), message->get_contents(), cancellable);
     co_return error;
 }
 
 Task<void> Protocol::vfunc_refresh_async(purple::Conversation* conversation, gio::Cancellable* cancellable)
 {
     auto* connection = static_cast<youtube::Connection*>(conversation->get_connection());
-    if(connection->is_connected_to_chat()) {
+    if(connection->is_chat_connected(conversation->get_topic())) {
         // Nothing to do if we are already connected
         co_return {};
     }

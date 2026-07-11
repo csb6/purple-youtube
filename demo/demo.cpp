@@ -85,7 +85,7 @@ int main(int argc, char** argv)
         auto expiration_str = expiration->format_iso8601();
         g_message("Access token expiration: %s", expiration_str.c_str());
     });
-    client->connect_new_messages([](youtube::ChatClient*, void* data) {
+    client->connect_new_messages([](youtube::ChatClient*, const char*, void* data) {
         auto& messages = *static_cast<peel::ArrayRef<const youtube::ChatMessage>*>(data);
         for(const auto& msg : messages) {
             auto local_timestamp = msg.timestamp->to_local();
