@@ -25,6 +25,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <peel/Purple/Badges.h>
 #include <peel/Purple/BadgeManager.h>
 #include <peel/Purple/ConversationManager.h>
+#include <peel/Purple/ConversationNotifyLevel.h>
 #include <peel/Purple/ConversationType.h>
 #include <peel/Purple/Core.h>
 #include <peel/Purple/Message.h>
@@ -110,6 +111,7 @@ Task<peel::RefPtr<purple::Conversation>> Protocol::vfunc_join_channel_async(
     conversation->set_online(true);
     conversation->set_title(connection->get_title(stream_url));
     conversation->set_topic(stream_url);
+    conversation->set_notify_level(purple::ConversationNotifyLevel::MENTIONS);
     // TODO: set contact info of this account's user in the conversation
     conversation_manager->add(conversation);
     co_return conversation;
