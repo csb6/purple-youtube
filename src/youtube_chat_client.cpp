@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 #include "youtube_chat_client.hpp"
 #include <string>
-#include <unordered_map>
+#include <map>
 #ifdef __linux__
 #include <sys/random.h>
 #endif
@@ -123,7 +123,7 @@ std::expected<peel::String, ErrorPtr> get_random_string();
 PEEL_CLASS_IMPL(ChatClient, "YoutubeChatClient", gobject::Object)
 
 struct ChatClient::Impl {
-    using ConversationIterator = std::unordered_map<std::string, Conversation>::iterator;
+    using ConversationIterator = std::map<std::string, Conversation>::iterator;
 
     // Operations
     void schedule_access_token_refresh();
@@ -141,7 +141,7 @@ struct ChatClient::Impl {
     bool is_authorized;
     EventSourceToken refresh_timer_source;
     peel::RefPtr<gio::Cancellable> refresh_cancel;
-    std::unordered_map<std::string, Conversation> conversations;
+    std::map<std::string, Conversation> conversations;
 };
 
 void ChatClient::Class::init()
